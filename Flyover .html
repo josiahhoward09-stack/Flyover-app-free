@@ -9,15 +9,13 @@
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
     
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
-
     <script src="https://unpkg.com/webm-muxer/build/webm-muxer.js"></script>
 
     <style>
-        /* STRAVA DESIGN SYSTEM IMPORTS & RESETS */
+        /* DESIGN SYSTEM */
         body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #111; overflow: hidden;}
         #map { position: absolute; top: 0; bottom: 0; width: 100%; }
         
-        /* STRAVA CLEAN WHITE UI PANEL */
         #ui-panel {
             position: absolute;
             top: 24px;
@@ -34,7 +32,6 @@
             color: #242428;
         }
 
-        /* Mileage Overlay for UI */
         #mileage-overlay {
             position: absolute;
             bottom: 40px;
@@ -51,154 +48,40 @@
             pointer-events: none;
         }
 
-        /* Custom Scrollbar for UI Panel */
         #ui-panel::-webkit-scrollbar { width: 4px; }
         #ui-panel::-webkit-scrollbar-track { background: transparent; }
         #ui-panel::-webkit-scrollbar-thumb { background: #d9d9e0; border-radius: 10px; }
 
-        /* TYPOGRAPHY */
-        h2 { 
-            margin-top: 0; 
-            font-size: 24px; 
-            font-weight: 800; 
-            color: #fc4c02; /* Strava Orange */
-            margin-bottom: 24px;
-            letter-spacing: -0.5px;
-        }
-        
-        .section-title { 
-            font-size: 11px; 
-            text-transform: uppercase; 
-            color: #6d6d78; 
-            letter-spacing: 1px; 
-            font-weight: 700;
-            margin-bottom: 12px; 
-        }
-
+        h2 { margin-top: 0; font-size: 24px; font-weight: 800; color: #fc4c02; margin-bottom: 24px; letter-spacing: -0.5px; }
+        .section-title { font-size: 11px; text-transform: uppercase; color: #6d6d78; letter-spacing: 1px; font-weight: 700; margin-bottom: 12px; }
         .control-group { margin-bottom: 16px; }
-        
-        label { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center;
-            font-size: 13px; 
-            margin-bottom: 8px; 
-            color: #242428; 
-            font-weight: 600; 
-        }
-
+        label { display: flex; justify-content: space-between; align-items: center; font-size: 13px; margin-bottom: 8px; color: #242428; font-weight: 600; }
         .val-display { color: #fc4c02; font-weight: 700; }
         
-        /* INPUTS & CONTROLS */
         input[type="file"] { display: none; }
-        
-        input[type="range"] { 
-            width: 100%; 
-            accent-color: #fc4c02; 
-            cursor: pointer; 
-            height: 4px;
-            background: #efefef;
-            border-radius: 4px;
-            appearance: none;
-            outline: none;
-        }
-        input[type="range"]::-webkit-slider-thumb {
-            appearance: none;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: #fc4c02;
-            cursor: pointer;
-        }
-        
-        input[type="color"] {
-            width: 100%;
-            height: 32px;
-            border: 1px solid #d9d9e0;
-            border-radius: 4px;
-            padding: 1px;
-            cursor: pointer;
-            background: #fff;
-        }
+        input[type="range"] { width: 100%; accent-color: #fc4c02; cursor: pointer; height: 4px; background: #efefef; border-radius: 4px; appearance: none; outline: none; }
+        input[type="range"]::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fc4c02; cursor: pointer; }
+        input[type="color"] { width: 100%; height: 32px; border: 1px solid #d9d9e0; border-radius: 4px; padding: 1px; cursor: pointer; background: #fff; }
 
-        .text-input, .select-input {
-            width: 100%;
-            padding: 10px 12px;
-            background: #ffffff;
-            color: #242428;
-            border: 1px solid #d9d9e0;
-            border-radius: 4px;
-            box-sizing: border-box;
-            font-family: inherit;
-            font-size: 14px;
-            transition: all 0.2s ease;
-        }
-        
-        .text-input:focus, .select-input:focus { 
-            outline: none; 
-            border-color: #fc4c02; 
-            box-shadow: 0 0 0 1px #fc4c02;
-        }
+        .text-input, .select-input { width: 100%; padding: 10px 12px; background: #ffffff; color: #242428; border: 1px solid #d9d9e0; border-radius: 4px; box-sizing: border-box; font-family: inherit; font-size: 14px; transition: all 0.2s ease; }
+        .text-input:focus, .select-input:focus { outline: none; border-color: #fc4c02; box-shadow: 0 0 0 1px #fc4c02; }
 
-        .select-input option { background: #fff; }
-
-        .divider { 
-            height: 1px; 
-            background: #efefef; 
-            margin: 24px 0; 
-        }
+        .divider { height: 1px; background: #efefef; margin: 24px 0; }
         
-        /* STRAVA BUTTONS */
-        .btn {
-            display: block; 
-            width: 100%; 
-            padding: 12px; 
-            border-radius: 4px; 
-            text-align: center; 
-            cursor: pointer; 
-            font-weight: 700; 
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            transition: all 0.2s ease;
-            box-sizing: border-box; 
-            margin-bottom: 12px;
-        }
-        
+        .btn { display: block; width: 100%; padding: 12px; border-radius: 4px; text-align: center; cursor: pointer; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.2s ease; box-sizing: border-box; margin-bottom: 12px; }
         .btn-upload { background: #f0f0f5; color: #242428; border: 1px solid #d9d9e0; font-size: 12px; padding: 10px;}
         .btn-upload:hover { background: #e6e6eb; }
-
         .btn-primary { background: #fc4c02; border: none; color: white; }
         .btn-primary:hover { background: #e34300; }
         .btn-primary:disabled { background: #f0f0f5; color: #b5b5b9; cursor: not-allowed; }
-        
         .btn-secondary { background: #242428; border: none; color: white; }
         .btn-secondary:hover { background: #000000; }
         .btn-secondary:disabled { background: #f0f0f5; color: #b5b5b9; cursor: not-allowed; }
 
-        #status { 
-            font-size: 12px; 
-            color: #6d6d78; 
-            text-align: center; 
-            margin-top: 16px; 
-            font-weight: 500;
-        }
+        #status { font-size: 12px; color: #6d6d78; text-align: center; margin-top: 16px; font-weight: 500; }
 
-        .checkbox-container {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-bottom: 16px;
-            color: #242428;
-        }
-        .checkbox-container input {
-            accent-color: #fc4c02;
-            width: 18px;
-            height: 18px;
-        }
+        .checkbox-container { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 16px; color: #242428; }
+        .checkbox-container input { accent-color: #fc4c02; width: 18px; height: 18px; }
     </style>
 </head>
 <body>
@@ -228,8 +111,8 @@
     </div>
 
     <div class="control-group">
-        <label>Camera Pitch (Angle) <span id="pitch-display" class="val-display">70°</span></label>
-        <input type="range" id="pitch-slider" min="0" max="85" step="1" value="70">
+        <label>Camera Pitch (Angle) <span id="pitch-display" class="val-display">60°</span></label>
+        <input type="range" id="pitch-slider" min="0" max="60" step="1" value="60">
     </div>
 
     <div class="control-group">
@@ -246,64 +129,61 @@
     </label>
 
     <div class="control-group">
-        <label>Terrain Exaggeration (Bumpy) <span id="terrain-display" class="val-display">2.5x</span></label>
-        <input type="range" id="terrain-slider" min="0" max="5" step="0.1" value="2.5">
+        <label>Terrain Exaggeration <span id="terrain-display" class="val-display">1.0x</span></label>
+        <input type="range" id="terrain-slider" min="0" max="5" step="0.1" value="1">
     </div>
 
     <div class="control-group">
-        <label>Runner Size <span id="runner-size-display" class="val-display">6</span></label>
-        <input type="range" id="runner-size-slider" min="2" max="20" step="1" value="6">
+        <label>Runner Size <span id="runner-size-display" class="val-display">10</span></label>
+        <input type="range" id="runner-size-slider" min="2" max="20" step="1" value="10">
     </div>
 
     <div style="display: flex; gap: 10px;">
         <div class="control-group" style="flex: 1;">
-            <label>Fill Color</label>
+            <label>Fill</label>
             <input type="color" id="runner-color" value="#ffffff">
         </div>
         <div class="control-group" style="flex: 1;">
-            <label>Outline Color</label>
+            <label>Outline</label>
             <input type="color" id="runner-outline-color" value="#00aeff">
         </div>
     </div>
 
     <div class="control-group">
-        <label for="runner-image-upload" class="btn btn-upload" style="margin-bottom: 0;">Upload Avatar Image</label>
+        <label for="runner-image-upload" class="btn btn-upload">Upload Avatar Image</label>
         <input type="file" id="runner-image-upload" accept="image/*" />
     </div>
 
     <div class="control-group">
-        <label>Route Line Thickness <span id="route-thickness-display" class="val-display">8px</span></label>
-        <input type="range" id="route-thickness-slider" min="2" max="20" step="1" value="8">
+        <label>Route Thickness <span id="route-thickness-display" class="val-display">10px</span></label>
+        <input type="range" id="route-thickness-slider" min="2" max="20" step="1" value="10">
     </div>
     
     <div class="divider"></div>
 
     <div class="section-title">2. Playback</div>
     <div style="display: flex; gap: 8px; margin-bottom: 24px;">
-        <button id="play-btn" class="btn btn-primary" style="margin-bottom: 0; flex: 1;" disabled>Play</button>
-        <button id="pause-btn" class="btn btn-upload" style="margin-bottom: 0; flex: 1; border: none; font-weight: bold; background: #e6e6eb;" disabled>Pause</button>
-        <button id="stop-btn" class="btn btn-upload" style="margin-bottom: 0; flex: 1; border: none; font-weight: bold; background: #e6e6eb;" disabled>Stop</button>
+        <button id="play-btn" class="btn btn-primary" style="flex: 1;" disabled>Play</button>
+        <button id="pause-btn" class="btn btn-upload" style="flex: 1; background: #e6e6eb;" disabled>Pause</button>
+        <button id="stop-btn" class="btn btn-upload" style="flex: 1; background: #e6e6eb;" disabled>Stop</button>
     </div>
 
     <div class="section-title">Video Export</div>
-    
     <div class="control-group">
         <label>File Name</label>
-        <input type="text" id="export-filename" class="text-input" value="My_Epic_Run" placeholder="Enter file name...">
+        <input type="text" id="export-filename" class="text-input" value="My_Epic_Run">
     </div>
-
     <div class="control-group">
-        <label>Frame Rate (FPS)</label>
+        <label>Frame Rate</label>
         <select id="export-fps" class="select-input">
-            <option value="24">24 FPS (Cinematic)</option>
-            <option value="30">30 FPS (Standard)</option>
-            <option value="60" selected>60 FPS (Ultra Smooth)</option>
+            <option value="24">24 FPS</option>
+            <option value="30">30 FPS</option>
+            <option value="60" selected>60 FPS</option>
         </select>
     </div>
-
     <button id="export-btn" class="btn btn-secondary" disabled>3. Export HQ Video</button>
     
-    <div id="status">Map loaded. Ready for GPX.</div>
+    <div id="status">Ready.</div>
 </div>
 
 <script>
@@ -317,72 +197,33 @@
         style: {
             version: 8,
             sources: {
-                'satellite-tiles': {
-                    type: 'raster',
-                    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-                    tileSize: 256,
-                    attribution: '&copy; Esri'
-                },
-                'terrain-source': {
-                    type: 'raster-dem',
-                    tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
-                    encoding: 'terrarium',
-                    tileSize: 256,
-                    maxzoom: 13
-                }
+                'satellite-tiles': { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256 },
+                'terrain-source': { type: 'raster-dem', tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], encoding: 'terrarium', tileSize: 256, maxzoom: 13 }
             },
             layers: [{ id: 'satellite-layer', type: 'raster', source: 'satellite-tiles' }],
-            terrain: { source: 'terrain-source', exaggeration: 2.5 }
+            terrain: { source: 'terrain-source', exaggeration: 1 }
         }
     });
 
     let routeCoordinates = [];
     let animationId = null;
-    
     let currentDistance = 0.0;
     let currentCameraBearing = 0; 
     let currentCameraPos = [0, 0];
     let rawRouteLine = null;
     let totalRouteDistance = 0;
-
     let speedMultiplier = 1.0;
     let cameraZoom = 15.8;
-    let cameraPitch = 70;
+    let cameraPitch = 60;
     let cameraSmoothness = 85; 
     let useCustomImage = false; 
 
     map.on('load', () => {
         map.addSource('route', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } } });
-        map.addLayer({ 'id': 'route-line', 'type': 'line', 'source': 'route', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#fc4c02', 'line-width': 8, 'line-opacity': 0.85 } });
+        map.addLayer({ 'id': 'route-line', 'type': 'line', 'source': 'route', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#fc4c02', 'line-width': 10, 'line-opacity': 0.85 } });
         map.addSource('runner', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': [0, 0] } } });
-        
-        map.addLayer({ 
-            'id': 'runner-point', 
-            'type': 'circle', 
-            'source': 'runner', 
-            'paint': { 
-                'circle-radius': 6, 
-                'circle-color': '#ffffff', 
-                'circle-stroke-width': 4, 
-                'circle-stroke-color': '#00aeff', 
-                'circle-opacity': 0, 
-                'circle-stroke-opacity': 0 
-            } 
-        });
-
-        map.addLayer({
-            'id': 'runner-point-symbol',
-            'type': 'symbol',
-            'source': 'runner',
-            'layout': {
-                'icon-image': 'custom-runner',
-                'icon-size': 0.6,
-                'icon-allow-overlap': true,
-                'icon-ignore-placement': true,
-                'icon-rotation-alignment': 'viewport' 
-            },
-            'paint': { 'icon-opacity': 0 }
-        });
+        map.addLayer({ 'id': 'runner-point', 'type': 'circle', 'source': 'runner', 'paint': { 'circle-radius': 10, 'circle-color': '#ffffff', 'circle-stroke-width': 4, 'circle-stroke-color': '#00aeff', 'circle-opacity': 0, 'circle-stroke-opacity': 0 } });
+        map.addLayer({ 'id': 'runner-point-symbol', 'type': 'symbol', 'source': 'runner', 'layout': { 'icon-image': 'custom-runner', 'icon-size': 1.0, 'icon-allow-overlap': true, 'icon-rotation-alignment': 'viewport' }, 'paint': { 'icon-opacity': 0 } });
     });
 
     function showRunner() {
@@ -407,40 +248,13 @@
     document.getElementById('show-mileage-checkbox').addEventListener('change', (e) => {
         document.getElementById('mileage-overlay').style.display = e.target.checked ? 'block' : 'none';
     });
-
-    document.getElementById('speed-slider').addEventListener('input', (e) => {
-        speedMultiplier = parseFloat(e.target.value);
-        document.getElementById('speed-display').innerText = speedMultiplier.toFixed(1) + 'x';
-    });
-    document.getElementById('zoom-slider').addEventListener('input', (e) => {
-        cameraZoom = parseFloat(e.target.value);
-        document.getElementById('zoom-display').innerText = cameraZoom.toFixed(1);
-    });
-    document.getElementById('pitch-slider').addEventListener('input', (e) => {
-        cameraPitch = parseInt(e.target.value, 10);
-        document.getElementById('pitch-display').innerText = cameraPitch + '°';
-    });
-    document.getElementById('smoothness-slider').addEventListener('input', (e) => {
-        cameraSmoothness = parseInt(e.target.value, 10);
-        document.getElementById('smoothness-display').innerText = cameraSmoothness + '%';
-    });
-    document.getElementById('terrain-slider').addEventListener('input', (e) => {
-        const val = parseFloat(e.target.value);
-        document.getElementById('terrain-display').innerText = val.toFixed(1) + 'x';
-        map.setTerrain({ source: 'terrain-source', exaggeration: val });
-    });
-    document.getElementById('runner-size-slider').addEventListener('input', (e) => {
-        const val = parseInt(e.target.value, 10);
-        document.getElementById('runner-size-display').innerText = val;
-        if (map.getLayer('runner-point')) map.setPaintProperty('runner-point', 'circle-radius', val);
-        if (map.getLayer('runner-point-symbol')) map.setLayoutProperty('runner-point-symbol', 'icon-size', val / 10);
-    });
-    document.getElementById('runner-color').addEventListener('input', (e) => {
-        if (map.getLayer('runner-point')) map.setPaintProperty('runner-point', 'circle-color', e.target.value);
-    });
-    document.getElementById('runner-outline-color').addEventListener('input', (e) => {
-        if (map.getLayer('runner-point')) map.setPaintProperty('runner-point', 'circle-stroke-color', e.target.value);
-    });
+    document.getElementById('speed-slider').addEventListener('input', (e) => { speedMultiplier = parseFloat(e.target.value); document.getElementById('speed-display').innerText = speedMultiplier.toFixed(1) + 'x'; });
+    document.getElementById('zoom-slider').addEventListener('input', (e) => { cameraZoom = parseFloat(e.target.value); document.getElementById('zoom-display').innerText = cameraZoom.toFixed(1); });
+    document.getElementById('pitch-slider').addEventListener('input', (e) => { cameraPitch = parseInt(e.target.value, 10); document.getElementById('pitch-display').innerText = cameraPitch + '°'; });
+    document.getElementById('smoothness-slider').addEventListener('input', (e) => { cameraSmoothness = parseInt(e.target.value, 10); document.getElementById('smoothness-display').innerText = cameraSmoothness + '%'; });
+    document.getElementById('terrain-slider').addEventListener('input', (e) => { const val = parseFloat(e.target.value); document.getElementById('terrain-display').innerText = val.toFixed(1) + 'x'; map.setTerrain({ source: 'terrain-source', exaggeration: val }); });
+    document.getElementById('runner-size-slider').addEventListener('input', (e) => { const val = parseInt(e.target.value, 10); document.getElementById('runner-size-display').innerText = val; if (map.getLayer('runner-point')) map.setPaintProperty('runner-point', 'circle-radius', val); if (map.getLayer('runner-point-symbol')) map.setLayoutProperty('runner-point-symbol', 'icon-size', val / 10); });
+    document.getElementById('route-thickness-slider').addEventListener('input', (e) => { const val = parseInt(e.target.value, 10); document.getElementById('route-thickness-display').innerText = val + 'px'; if (map.getLayer('route-line')) map.setPaintProperty('route-line', 'line-width', val); });
 
     document.getElementById('runner-image-upload').addEventListener('change', function(e) {
         const file = e.target.files[0];
@@ -449,33 +263,18 @@
         reader.onload = function(event) {
             const img = new Image();
             img.onload = function() {
-                const size = 128;
-                const canvas = document.createElement('canvas');
-                canvas.width = size; canvas.height = size;
-                const ctx = canvas.getContext('2d');
-                ctx.beginPath(); ctx.arc(size/2, size/2, size/2 - 8, 0, Math.PI * 2); ctx.closePath(); ctx.save(); ctx.clip();
+                const size = 128; const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size; const ctx = canvas.getContext('2d');
+                ctx.beginPath(); ctx.arc(size/2, size/2, size/2, 0, Math.PI * 2); ctx.closePath(); ctx.save(); ctx.clip();
                 const scale = Math.max(size / img.width, size / img.height);
-                const x = (size / 2) - (img.width / 2) * scale;
-                const y = (size / 2) - (img.height / 2) * scale;
-                ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+                ctx.drawImage(img, (size/2)-(img.width/2)*scale, (size/2)-(img.height/2)*scale, img.width*scale, img.height*scale);
                 ctx.restore(); 
-                ctx.beginPath(); ctx.arc(size/2, size/2, size/2 - 4, 0, Math.PI * 2); ctx.lineWidth = 8;
-                ctx.strokeStyle = document.getElementById('runner-outline-color').value; ctx.stroke();
-                const imageData = ctx.getImageData(0, 0, size, size);
                 if (map.hasImage('custom-runner')) map.removeImage('custom-runner');
-                map.addImage('custom-runner', imageData);
-                useCustomImage = true;
-                document.getElementById('status').innerText = 'Avatar created successfully.';
+                map.addImage('custom-runner', ctx.getImageData(0, 0, size, size)); useCustomImage = true;
+                document.getElementById('status').innerText = 'Avatar created (No Border).';
             };
             img.src = event.target.result;
         };
         reader.readAsDataURL(file);
-    });
-
-    document.getElementById('route-thickness-slider').addEventListener('input', (e) => {
-        const val = parseInt(e.target.value, 10);
-        document.getElementById('route-thickness-display').innerText = val + 'px';
-        if (map.getLayer('route-line')) map.setPaintProperty('route-line', 'line-width', val);
     });
 
     document.getElementById('gpx-upload').addEventListener('change', function(e) {
@@ -496,53 +295,42 @@
             routeCoordinates.push([parseFloat(trackPoints[i].getAttribute('lon')), parseFloat(trackPoints[i].getAttribute('lat'))]);
         }
         if (routeCoordinates.length > 0) {
-            document.getElementById('status').innerText = `Loaded ${routeCoordinates.length} points.`;
-            currentDistance = 0.0;
-            document.getElementById('play-btn').disabled = false;
-            document.getElementById('export-btn').disabled = false;
             const rawLine = turf.lineString(routeCoordinates);
             rawRouteLine = turf.bezierSpline(rawLine, { resolution: 20000, sharpness: 0.85 }); 
             totalRouteDistance = turf.length(rawRouteLine, {units: 'kilometers'});
             map.getSource('route').setData({ 'type': 'Feature', 'geometry': rawRouteLine.geometry });
-            const bounds = routeCoordinates.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(routeCoordinates[0], routeCoordinates[0]));
-            map.fitBounds(bounds, { padding: 50, pitch: 0, bearing: 0 });
+            map.fitBounds(routeCoordinates.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(routeCoordinates[0], routeCoordinates[0])), { padding: 50 });
+            document.getElementById('play-btn').disabled = false;
+            document.getElementById('export-btn').disabled = false;
+            document.getElementById('status').innerText = 'GPX Loaded.';
         }
     }
 
-    // PHYSICS ENGINE - LOCKED FOLLOW & SLOW ORBIT
     function calculateCameraPhysics(dist, totalDist, currentB) {
         const lookAhead = 0.15;
-        const loopThreshold = 0.015; // Detecting when runner is looping back over same spot
-
+        const loopThreshold = 0.015;
         const runnerPoint = turf.along(rawRouteLine, dist, {units: 'kilometers'});
         const rPos = runnerPoint.geometry.coordinates;
 
-        // Loop detection: compare current spot to spot 200m back
-        let isStationaryArea = false;
+        let isStationary = false;
         if (dist > 0.4) {
             const pastPoint = turf.along(rawRouteLine, dist - 0.2, {units: 'kilometers'});
-            const distBetween = turf.distance(runnerPoint, pastPoint, {units: 'kilometers'});
-            if (distBetween < loopThreshold) isStationaryArea = true;
+            if (turf.distance(runnerPoint, pastPoint) < loopThreshold) isStationary = true;
         }
 
         let targetB = currentB;
-        if (isStationaryArea) {
-            // SUPER SLOW ORBIT: Completes 1 rotation over the entire distance of the run
-            targetB = (dist / totalDist) * 360;
+        if (isStationary) {
+            targetB = (dist / totalDist) * 360; 
         } else if (dist + lookAhead < totalDist) {
-            const aheadPoint = turf.along(rawRouteLine, dist + lookAhead, {units: 'kilometers'});
-            targetB = turf.bearing(runnerPoint, aheadPoint);
+            targetB = turf.bearing(runnerPoint, turf.along(rawRouteLine, dist + lookAhead, {units: 'kilometers'}));
         }
 
         let bWeight = (100 - cameraSmoothness) / 1000 + 0.02;
         let bDiff = targetB - currentB;
         if (bDiff > 180) bDiff -= 360; if (bDiff < -180) bDiff += 360;
-        let newBearing = currentB + (bDiff * bWeight);
-
-        return { rPos, newBearing, targetB };
+        return { rPos, newBearing: currentB + (bDiff * bWeight), targetB };
     }
 
-    // Preview Engine
     document.getElementById('play-btn').addEventListener('click', () => {
         if (animationId) cancelAnimationFrame(animationId);
         document.getElementById('play-btn').disabled = true;
@@ -552,8 +340,7 @@
         showRunner();
 
         if (currentDistance === 0.0) {
-            const nextPt = turf.along(rawRouteLine, 0.001, {units: 'kilometers'});
-            currentCameraBearing = turf.bearing(turf.point(routeCoordinates[0]), nextPt);
+            currentCameraBearing = calculateCameraPhysics(0, totalRouteDistance, 0).targetB;
             currentCameraPos = [...routeCoordinates[0]];
         }
 
@@ -562,54 +349,63 @@
                 document.getElementById('play-btn').disabled = false;
                 hideRunner(); currentDistance = 0.0; return;
             }
-
             const phys = calculateCameraPhysics(currentDistance, totalRouteDistance, currentCameraBearing);
-
             let pWeight = (100 - cameraSmoothness) / 600 + 0.05;
             currentCameraPos[0] += (phys.rPos[0] - currentCameraPos[0]) * pWeight;
             currentCameraPos[1] += (phys.rPos[1] - currentCameraPos[1]) * pWeight;
             currentCameraBearing = phys.newBearing;
-
             map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': phys.rPos } });
-            if (useCustomImage) map.setLayoutProperty('runner-point-symbol', 'icon-rotate', phys.targetB);
-            
             map.jumpTo({ center: currentCameraPos, zoom: cameraZoom, pitch: cameraPitch, bearing: currentCameraBearing });
-
             if (document.getElementById('show-mileage-checkbox').checked) {
                 document.getElementById('mileage-overlay').innerText = (currentDistance * 0.621371).toFixed(2) + " MI";
             }
-
             currentDistance += 0.004 * speedMultiplier;
             animationId = requestAnimationFrame(frame);
         }
         frame();
     });
 
-    // Bake Exporter with Real-time Stats
+    document.getElementById('pause-btn').addEventListener('click', () => {
+        cancelAnimationFrame(animationId);
+        document.getElementById('play-btn').disabled = false;
+        document.getElementById('pause-btn').disabled = true;
+        document.getElementById('export-btn').disabled = false;
+        document.getElementById('status').innerText = 'Paused.';
+    });
+
+    document.getElementById('stop-btn').addEventListener('click', () => {
+        cancelAnimationFrame(animationId);
+        currentDistance = 0.0; hideRunner();
+        document.getElementById('play-btn').disabled = false;
+        document.getElementById('pause-btn').disabled = true;
+        document.getElementById('stop-btn').disabled = true;
+        document.getElementById('export-btn').disabled = false;
+        document.getElementById('mileage-overlay').innerText = "0.00 MI";
+        map.fitBounds(routeCoordinates.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(routeCoordinates[0], routeCoordinates[0])), { padding: 50 });
+        document.getElementById('status').innerText = 'Stopped.';
+    });
+
     document.getElementById('export-btn').addEventListener('click', async () => {
-        if (animationId) cancelAnimationFrame(animationId);
+        cancelAnimationFrame(animationId);
         document.getElementById('play-btn').disabled = true;
         document.getElementById('export-btn').disabled = true;
-        let fileName = document.getElementById('export-filename').value.trim() || "Flyover_Run";
         const fps = parseInt(document.getElementById('export-fps').value, 10);
         const showStats = document.getElementById('show-mileage-checkbox').checked;
         showRunner();
 
         const mapCanvas = map.getCanvas();
-        const encWidth = Math.floor(mapCanvas.width / 2) * 2;
-        const encHeight = Math.floor(mapCanvas.height / 2) * 2;
-
         const compositeCanvas = document.createElement('canvas');
-        compositeCanvas.width = encWidth; compositeCanvas.height = encHeight;
+        compositeCanvas.width = Math.floor(mapCanvas.width / 2) * 2;
+        compositeCanvas.height = Math.floor(mapCanvas.height / 2) * 2;
         const ctx = compositeCanvas.getContext('2d');
 
         try {
-            const muxer = new WebMMuxer.Muxer({ target: new WebMMuxer.ArrayBufferTarget(), video: { codec: 'V_VP9', width: encWidth, height: encHeight, frameRate: fps } });
+            const muxer = new WebMMuxer.Muxer({ target: new WebMMuxer.ArrayBufferTarget(), video: { codec: 'V_VP9', width: compositeCanvas.width, height: compositeCanvas.height, frameRate: fps } });
             const videoEncoder = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => console.error(e) });
-            videoEncoder.configure({ codec: 'vp09.00.10.08', width: encWidth, height: encHeight, bitrate: 25_000_000, framerate: fps });
+            videoEncoder.configure({ codec: 'vp09.00.10.08', width: compositeCanvas.width, height: compositeCanvas.height, bitrate: 25_000_000, framerate: fps });
 
             let exDist = 0.0;
-            let exBearing = turf.bearing(turf.point(routeCoordinates[0]), turf.along(rawRouteLine, 0.001, {units: 'kilometers'}));
+            let exBearing = calculateCameraPhysics(0, totalRouteDistance, 0).targetB;
             let exPos = [...routeCoordinates[0]];
             let frameIdx = 0;
             const step = 0.004 * speedMultiplier;
@@ -617,41 +413,31 @@
 
             while (exDist < totalRouteDistance) {
                 const phys = calculateCameraPhysics(exDist, totalRouteDistance, exBearing);
-                
                 let pWeight = (100 - cameraSmoothness) / 600 + 0.05;
                 exPos[0] += (phys.rPos[0] - exPos[0]) * pWeight;
                 exPos[1] += (phys.rPos[1] - exPos[1]) * pWeight;
                 exBearing = phys.newBearing;
-
                 map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': phys.rPos } });
-                if (useCustomImage) map.setLayoutProperty('runner-point-symbol', 'icon-rotate', phys.targetB);
                 map.jumpTo({ center: exPos, zoom: cameraZoom, pitch: cameraPitch, bearing: exBearing });
 
                 await new Promise(r => { let f = 0; const c = () => { if (map.loaded() && map.areTilesLoaded()) { f++; if (f >= 3) return r(); } else f = 0; requestAnimationFrame(c); }; requestAnimationFrame(c); });
 
-                ctx.clearRect(0, 0, encWidth, encHeight);
-                ctx.drawImage(mapCanvas, 0, 0, encWidth, encHeight);
-                
+                ctx.drawImage(mapCanvas, 0, 0, compositeCanvas.width, compositeCanvas.height);
                 if (showStats) {
-                    const txt = (exDist * 0.621371).toFixed(2) + " MI";
-                    ctx.font = "bold 32px -apple-system, sans-serif";
-                    const tw = ctx.measureText(txt).width;
-                    ctx.fillStyle = "rgba(255,255,255,0.9)";
-                    ctx.fillRect(encWidth - tw - 60, encHeight - 80, tw + 40, 50);
-                    ctx.fillStyle = "#242428";
-                    ctx.fillText(txt, encWidth - tw - 40, encHeight - 45);
+                    const txt = (exDist * 0.621371).toFixed(2) + " MI"; ctx.font = "bold 32px sans-serif";
+                    const tw = ctx.measureText(txt).width; ctx.fillStyle = "rgba(255,255,255,0.9)";
+                    ctx.fillRect(compositeCanvas.width - tw - 60, compositeCanvas.height - 80, tw + 40, 50);
+                    ctx.fillStyle = "#242428"; ctx.fillText(txt, compositeCanvas.width - tw - 40, compositeCanvas.height - 45);
                 }
-
                 const vFrame = new VideoFrame(compositeCanvas, { timestamp: (frameIdx * 1e6) / fps });
                 videoEncoder.encode(vFrame, { keyFrame: frameIdx % 60 === 0 });
-                vFrame.close();
-                exDist += step; frameIdx++;
-                if (frameIdx % 5 === 0) document.getElementById('status').innerText = `Baking Frame ${frameIdx} / ${totalF} (${Math.round((frameIdx/totalF)*100)}%)`;
+                vFrame.close(); exDist += step; frameIdx++;
+                if (frameIdx % 10 === 0) document.getElementById('status').innerText = `Baking: ${Math.round((frameIdx/totalF)*100)}%`;
             }
-
             await videoEncoder.flush(); muxer.finalize();
-            const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([muxer.target.buffer], { type: 'video/webm' })); a.download = `${fileName}.webm`; a.click();
-            document.getElementById('status').innerText = 'Export Complete!';
+            const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([muxer.target.buffer], { type: 'video/webm' }));
+            a.download = `${document.getElementById('export-filename').value}.webm`; a.click();
+            document.getElementById('status').innerText = 'Export Complete.';
         } catch (err) { console.error(err); } finally { document.getElementById('play-btn').disabled = false; document.getElementById('export-btn').disabled = false; hideRunner(); }
     });
 </script>
