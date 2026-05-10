@@ -134,17 +134,42 @@
     </div>
 
     <div class="control-group">
+        <label>Route Rendering Mode</label>
+        <select id="route-mode" class="select-input">
+            <option value="solid" selected>Solid Route</option>
+            <option value="progress">Dynamic Progress Trail</option>
+            <option value="hidden">Hidden Route</option>
+        </select>
+    </div>
+
+    <div style="display: flex; gap: 10px;">
+        <div class="control-group" style="flex: 1;">
+            <label>Past Route Color</label>
+            <input type="color" id="route-color-past" value="#fc4c02">
+        </div>
+        <div class="control-group" style="flex: 1;">
+            <label>Future Route Color</label>
+            <input type="color" id="route-color-future" value="#6d6d78">
+        </div>
+    </div>
+
+    <div class="control-group">
+        <label>Route Thickness <span id="route-thickness-display" class="val-display">10px</span></label>
+        <input type="range" id="route-thickness-slider" min="2" max="20" step="1" value="10">
+    </div>
+
+    <div class="control-group" style="margin-top: 12px;">
         <label>Runner Size <span id="runner-size-display" class="val-display">10</span></label>
         <input type="range" id="runner-size-slider" min="2" max="20" step="1" value="10">
     </div>
 
     <div style="display: flex; gap: 10px;">
         <div class="control-group" style="flex: 1;">
-            <label>Fill</label>
+            <label>Runner Fill</label>
             <input type="color" id="runner-color" value="#ffffff">
         </div>
         <div class="control-group" style="flex: 1;">
-            <label>Outline</label>
+            <label>Runner Outline</label>
             <input type="color" id="runner-outline-color" value="#00aeff">
         </div>
     </div>
@@ -152,11 +177,6 @@
     <div class="control-group">
         <label for="runner-image-upload" class="btn btn-upload">Upload Avatar Image</label>
         <input type="file" id="runner-image-upload" accept="image/*" />
-    </div>
-
-    <div class="control-group">
-        <label>Route Thickness <span id="route-thickness-display" class="val-display">10px</span></label>
-        <input type="range" id="route-thickness-slider" min="2" max="20" step="1" value="10">
     </div>
     
     <div class="divider"></div>
@@ -219,8 +239,14 @@
     let useCustomImage = false; 
 
     map.on('load', () => {
-        map.addSource('route', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } } });
-        map.addLayer({ 'id': 'route-line', 'type': 'line', 'source': 'route', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#fc4c02', 'line-width': 10, 'line-opacity': 0.85 } });
+        // Dynamic Route Split Sources
+        map.addSource('route-past', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } } });
+        map.addLayer({ 'id': 'route-line-past', 'type': 'line', 'source': 'route-past', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#fc4c02', 'line-width': 10, 'line-opacity': 0.85 } });
+
+        map.addSource('route-future', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } } });
+        map.addLayer({ 'id': 'route-line-future', 'type': 'line', 'source': 'route-future', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#6d6d78', 'line-width': 10, 'line-opacity': 0 } }); // Hidden by default (Solid mode)
+
+        // Runner Source
         map.addSource('runner', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': [0, 0] } } });
         map.addLayer({ 'id': 'runner-point', 'type': 'circle', 'source': 'runner', 'paint': { 'circle-radius': 10, 'circle-color': '#ffffff', 'circle-stroke-width': 4, 'circle-stroke-color': '#00aeff', 'circle-opacity': 0, 'circle-stroke-opacity': 0 } });
         map.addLayer({ 'id': 'runner-point-symbol', 'type': 'symbol', 'source': 'runner', 'layout': { 'icon-image': 'custom-runner', 'icon-size': 1.0, 'icon-allow-overlap': true, 'icon-rotation-alignment': 'viewport' }, 'paint': { 'icon-opacity': 0 } });
@@ -244,7 +270,54 @@
         if (map.getLayer('runner-point-symbol')) map.setPaintProperty('runner-point-symbol', 'icon-opacity', 0);
     }
 
+    // Interactive Route Slicing Logic
+    function updateRouteSlicing(dist) {
+        if (!rawRouteLine) return;
+        const mode = document.getElementById('route-mode').value;
+        
+        if (mode === 'solid') {
+            map.getSource('route-past').setData(rawRouteLine);
+            map.getSource('route-future').setData({ 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } });
+        } else if (mode === 'progress') {
+            if (dist <= 0) {
+                map.getSource('route-past').setData({ 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } });
+                map.getSource('route-future').setData(rawRouteLine);
+            } else if (dist >= totalRouteDistance) {
+                map.getSource('route-past').setData(rawRouteLine);
+                map.getSource('route-future').setData({ 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } });
+            } else {
+                const past = turf.lineSliceAlong(rawRouteLine, 0, dist);
+                const future = turf.lineSliceAlong(rawRouteLine, dist, totalRouteDistance);
+                map.getSource('route-past').setData(past);
+                map.getSource('route-future').setData(future);
+            }
+        }
+    }
+
     // UI Listeners
+    document.getElementById('route-mode').addEventListener('change', (e) => {
+        const mode = e.target.value;
+        if (mode === 'hidden') {
+            map.setPaintProperty('route-line-past', 'line-opacity', 0);
+            map.setPaintProperty('route-line-future', 'line-opacity', 0);
+        } else if (mode === 'solid') {
+            map.setPaintProperty('route-line-past', 'line-opacity', 0.85);
+            map.setPaintProperty('route-line-future', 'line-opacity', 0);
+            updateRouteSlicing(currentDistance);
+        } else if (mode === 'progress') {
+            map.setPaintProperty('route-line-past', 'line-opacity', 0.85);
+            map.setPaintProperty('route-line-future', 'line-opacity', 0.85);
+            updateRouteSlicing(currentDistance);
+        }
+    });
+
+    document.getElementById('route-color-past').addEventListener('input', (e) => {
+        if (map.getLayer('route-line-past')) map.setPaintProperty('route-line-past', 'line-color', e.target.value);
+    });
+    document.getElementById('route-color-future').addEventListener('input', (e) => {
+        if (map.getLayer('route-line-future')) map.setPaintProperty('route-line-future', 'line-color', e.target.value);
+    });
+
     document.getElementById('show-mileage-checkbox').addEventListener('change', (e) => {
         document.getElementById('mileage-overlay').style.display = e.target.checked ? 'block' : 'none';
     });
@@ -254,7 +327,20 @@
     document.getElementById('smoothness-slider').addEventListener('input', (e) => { cameraSmoothness = parseInt(e.target.value, 10); document.getElementById('smoothness-display').innerText = cameraSmoothness + '%'; });
     document.getElementById('terrain-slider').addEventListener('input', (e) => { const val = parseFloat(e.target.value); document.getElementById('terrain-display').innerText = val.toFixed(1) + 'x'; map.setTerrain({ source: 'terrain-source', exaggeration: val }); });
     document.getElementById('runner-size-slider').addEventListener('input', (e) => { const val = parseInt(e.target.value, 10); document.getElementById('runner-size-display').innerText = val; if (map.getLayer('runner-point')) map.setPaintProperty('runner-point', 'circle-radius', val); if (map.getLayer('runner-point-symbol')) map.setLayoutProperty('runner-point-symbol', 'icon-size', val / 10); });
-    document.getElementById('route-thickness-slider').addEventListener('input', (e) => { const val = parseInt(e.target.value, 10); document.getElementById('route-thickness-display').innerText = val + 'px'; if (map.getLayer('route-line')) map.setPaintProperty('route-line', 'line-width', val); });
+    
+    document.getElementById('route-thickness-slider').addEventListener('input', (e) => { 
+        const val = parseInt(e.target.value, 10); 
+        document.getElementById('route-thickness-display').innerText = val + 'px'; 
+        if (map.getLayer('route-line-past')) map.setPaintProperty('route-line-past', 'line-width', val); 
+        if (map.getLayer('route-line-future')) map.setPaintProperty('route-line-future', 'line-width', val); 
+    });
+
+    document.getElementById('runner-color').addEventListener('input', (e) => {
+        if (map.getLayer('runner-point')) map.setPaintProperty('runner-point', 'circle-color', e.target.value);
+    });
+    document.getElementById('runner-outline-color').addEventListener('input', (e) => {
+        if (map.getLayer('runner-point')) map.setPaintProperty('runner-point', 'circle-stroke-color', e.target.value);
+    });
 
     document.getElementById('runner-image-upload').addEventListener('change', function(e) {
         const file = e.target.files[0];
@@ -295,14 +381,18 @@
             routeCoordinates.push([parseFloat(trackPoints[i].getAttribute('lon')), parseFloat(trackPoints[i].getAttribute('lat'))]);
         }
         if (routeCoordinates.length > 0) {
+            // ADVANCED SMOOTHING: Simplify to remove tracking jitters, then spline for a perfect curve.
             const rawLine = turf.lineString(routeCoordinates);
-            rawRouteLine = turf.bezierSpline(rawLine, { resolution: 20000, sharpness: 0.85 }); 
+            const simplified = turf.simplify(rawLine, {tolerance: 0.0001, highQuality: true});
+            rawRouteLine = turf.bezierSpline(simplified, { resolution: 20000, sharpness: 0.85 }); 
+            
             totalRouteDistance = turf.length(rawRouteLine, {units: 'kilometers'});
-            map.getSource('route').setData({ 'type': 'Feature', 'geometry': rawRouteLine.geometry });
+            updateRouteSlicing(0);
+            
             map.fitBounds(routeCoordinates.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(routeCoordinates[0], routeCoordinates[0])), { padding: 50 });
             document.getElementById('play-btn').disabled = false;
             document.getElementById('export-btn').disabled = false;
-            document.getElementById('status').innerText = 'GPX Loaded.';
+            document.getElementById('status').innerText = 'GPX Loaded & Smoothed.';
         }
     }
 
@@ -354,8 +444,12 @@
             currentCameraPos[0] += (phys.rPos[0] - currentCameraPos[0]) * pWeight;
             currentCameraPos[1] += (phys.rPos[1] - currentCameraPos[1]) * pWeight;
             currentCameraBearing = phys.newBearing;
+            
             map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': phys.rPos } });
             map.jumpTo({ center: currentCameraPos, zoom: cameraZoom, pitch: cameraPitch, bearing: currentCameraBearing });
+            
+            updateRouteSlicing(currentDistance);
+            
             if (document.getElementById('show-mileage-checkbox').checked) {
                 document.getElementById('mileage-overlay').innerText = (currentDistance * 0.621371).toFixed(2) + " MI";
             }
@@ -417,7 +511,9 @@
                 exPos[0] += (phys.rPos[0] - exPos[0]) * pWeight;
                 exPos[1] += (phys.rPos[1] - exPos[1]) * pWeight;
                 exBearing = phys.newBearing;
+                
                 map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': phys.rPos } });
+                updateRouteSlicing(exDist);
                 map.jumpTo({ center: exPos, zoom: cameraZoom, pitch: cameraPitch, bearing: exBearing });
 
                 await new Promise(r => { let f = 0; const c = () => { if (map.loaded() && map.areTilesLoaded()) { f++; if (f >= 3) return r(); } else f = 0; requestAnimationFrame(c); }; requestAnimationFrame(c); });
