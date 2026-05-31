@@ -383,7 +383,6 @@
         style: {
             version: 8,
             sources: {
-                // FIXED: maxzoom 17 prevents "Map data not yet available" tiles from fetching
                 'satellite-tiles': { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 17 },
                 'terrain-source': { type: 'raster-dem', tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], encoding: 'terrarium', tileSize: 256, maxzoom: 13 }
             },
@@ -419,6 +418,10 @@
     let cameraSmoothness = 45; 
     let useCustomImage = false; 
 
+    // Track Loop Detection State
+    let isTrackRun = false;
+    let trackCenter = [0, 0];
+
     // Resolution Config Map
     const resolutionMap = {
         "720": { w: 1280, h: 720, br: 10_000_000 },
@@ -437,7 +440,6 @@
         while (diff < -180) diff += 360;
         return start + diff * t;
     }
-    // Easing curve for cinematic smooth sweeps
     function easeInOut(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
 
     function getOverviewCamera() {
@@ -458,12 +460,10 @@
     }
 
     map.on('load', () => {
-        // Start/Finish Points
         map.addSource('start-point', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': [0, 0] } } });
         map.addLayer({ 'id': 'start-circle-bg', 'type': 'circle', 'source': 'start-point', 'paint': { 'circle-radius': 12, 'circle-color': '#ffffff', 'circle-opacity': 0 } });
         map.addLayer({ 'id': 'start-circle', 'type': 'circle', 'source': 'start-point', 'paint': { 'circle-radius': 8, 'circle-color': '#00a859', 'circle-opacity': 0 } });
 
-        // Route Layers
         map.addSource('route-past', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } } });
         map.addLayer({ 'id': 'route-line-past-glow', 'type': 'line', 'source': 'route-past', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#fc4c02', 'line-width': 20, 'line-opacity': 0.4, 'line-blur': 8 } });
         map.addLayer({ 'id': 'route-line-past-casing', 'type': 'line', 'source': 'route-past', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#000000', 'line-width': 14, 'line-opacity': 0.3 } });
@@ -478,7 +478,6 @@
         map.addLayer({ 'id': 'finish-circle-bg', 'type': 'circle', 'source': 'finish-point', 'paint': { 'circle-radius': 12, 'circle-color': '#ffffff', 'circle-opacity': 0 } });
         map.addLayer({ 'id': 'finish-circle', 'type': 'circle', 'source': 'finish-point', 'paint': { 'circle-radius': 8, 'circle-color': '#fc4c02', 'circle-opacity': 0 } });
 
-        // Runner Layer
         map.addSource('runner', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': [0, 0] } } });
         map.addLayer({ 'id': 'runner-point', 'type': 'circle', 'source': 'runner', 'paint': { 'circle-radius': 10, 'circle-color': '#ffffff', 'circle-stroke-width': 4, 'circle-stroke-color': '#000000', 'circle-opacity': 0, 'circle-stroke-opacity': 0 } });
         map.addLayer({ 'id': 'runner-point-symbol', 'type': 'symbol', 'source': 'runner', 'layout': { 'icon-image': 'custom-runner', 'icon-size': 1.0, 'icon-allow-overlap': true, 'icon-rotation-alignment': 'viewport' }, 'paint': { 'icon-opacity': 0 } });
@@ -511,16 +510,13 @@
         if (map.getLayer('runner-point-symbol')) map.setPaintProperty('runner-point-symbol', 'icon-opacity', 0);
     }
 
-    function updateRouteSlicingByPoint(runnerCoord) {
+    function updateRouteSlicingByDist(runDist) {
         if (!rawRouteLine) return;
         const mode = document.getElementById('route-mode').value;
         if (mode === 'solid') {
             map.getSource('route-past').setData(rawRouteLine);
             map.getSource('route-future').setData({ 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } });
         } else if (mode === 'progress') {
-            const snapped = turf.nearestPointOnLine(rawRouteLine, turf.point(runnerCoord), {units: 'kilometers'});
-            const runDist = snapped.properties.location;
-            
             if (runDist <= 0) {
                 map.getSource('route-past').setData({ 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } });
                 map.getSource('route-future').setData(rawRouteLine);
@@ -564,7 +560,7 @@
                 map.setPaintProperty(`route-line-${t}-casing`, 'line-opacity', mode === 'solid' && t === 'future' ? 0 : opCase);
                 map.setPaintProperty(`route-line-${t}`, 'line-opacity', mode === 'solid' && t === 'future' ? 0 : opCore);
             });
-            updateRouteSlicingByPoint(currentRunnerPos);
+            updateRouteSlicingByDist(currentDistance);
         }
     });
 
@@ -628,7 +624,7 @@
         reader.readAsDataURL(file);
     });
 
-    // --- GPX PARSER ---
+    // --- GPX PARSER & TRACK DETECTION ---
     document.getElementById('gpx-upload').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -671,11 +667,30 @@
             rawRouteLine = turf.lineString(routeCoordinates);
             totalRouteDistance = turf.length(rawRouteLine, {units: 'kilometers'});
             
+            // MATH-BASED CENTER OF MASS (Perfectly finds the exact center of track/loops ignoring walk warmups)
+            let sumLng = 0, sumLat = 0;
+            for(let i=0; i<routeCoordinates.length; i++) {
+                sumLng += routeCoordinates[i][0];
+                sumLat += routeCoordinates[i][1];
+            }
+            trackCenter = [sumLng / routeCoordinates.length, sumLat / routeCoordinates.length];
+
+            // MATH-BASED LOOP DETECTION (Uses ratio of total run distance to area width to guarantee it detects loops correctly)
+            const bounds = routeCoordinates.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(routeCoordinates[0], routeCoordinates[0]));
+            const diagDist = turf.distance(turf.point([bounds.getWest(), bounds.getSouth()]), turf.point([bounds.getEast(), bounds.getNorth()]), {units: 'kilometers'});
+            
+            if (diagDist > 0 && (totalRouteDistance / diagDist) > 3.0) {
+                isTrackRun = true;
+                console.log("Lap Mode Auto-Engaged! Ratio: ", (totalRouteDistance / diagDist));
+            } else {
+                isTrackRun = false;
+            }
+
             map.getSource('start-point').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[0] } });
             map.getSource('finish-point').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[routeCoordinates.length - 1] } });
             showStartFinish();
 
-            updateRouteSlicingByPoint(routeCoordinates[0]);
+            updateRouteSlicingByDist(0);
             
             const overview = getOverviewCamera();
             map.jumpTo({ center: overview.center, zoom: overview.zoom, pitch: overview.pitch, bearing: overview.bearing, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
@@ -906,8 +921,8 @@
         const transFrames = parseFloat(document.getElementById('transition-duration-slider').value) * previewFPS;
 
         if (currentDistance === 0.0 && playFrameIdx === 0 && playPhase === 'none') {
-            currentCameraBearing = calculateCameraPhysics(0, totalRouteDistance, 0).targetB;
-            currentCameraPos = [...routeCoordinates[0]];
+            currentCameraBearing = isTrackRun ? 0 : calculateCameraPhysics(0, totalRouteDistance, 0).targetB;
+            currentCameraPos = isTrackRun ? [...trackCenter] : [...routeCoordinates[0]];
             currentRunnerPos = [...routeCoordinates[0]];
             playPhase = 'intro_hold';
         }
@@ -920,7 +935,8 @@
 
             const overview = getOverviewCamera();
             const physStart = calculateCameraPhysics(0, totalRouteDistance, currentCameraBearing);
-            const startBearing = physStart.targetB;
+            const startBearing = isTrackRun ? 0 : physStart.targetB;
+            const startPos = isTrackRun ? trackCenter : routeCoordinates[0];
 
             if (playPhase === 'intro_hold') {
                 if (!enableIntro || holdFrames === 0) {
@@ -930,7 +946,7 @@
                     return;
                 }
                 map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[0] } });
-                updateRouteSlicingByPoint(routeCoordinates[0]);
+                updateRouteSlicingByDist(0);
                 map.jumpTo({ center: overview.center, zoom: overview.zoom, pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
                 renderStatsOverlay(0);
                 
@@ -947,13 +963,13 @@
                 const t = Math.min(playFrameIdx / transFrames, 1.0);
                 const easeT = easeInOut(t);
                 
-                const cCenter = lerpLngLat(overview.center, routeCoordinates[0], easeT);
+                const cCenter = lerpLngLat(overview.center, startPos, easeT);
                 const cZoom = lerp(overview.zoom, cameraZoom, easeT);
                 const cPitch = lerp(0, cameraPitch, easeT);
                 const cBearing = lerpBearing(0, startBearing, easeT);
                 
                 map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[0] } });
-                updateRouteSlicingByPoint(routeCoordinates[0]);
+                updateRouteSlicingByDist(0);
                 map.jumpTo({ center: cCenter, zoom: cZoom, pitch: cPitch, bearing: cBearing, padding: { top: padTop * easeT, bottom: padBottom * easeT, left: 0, right: 0 } });
                 renderStatsOverlay(0);
                 
@@ -962,7 +978,7 @@
                     playPhase = 'run'; 
                     currentDistance = 0.0;
                     currentCameraBearing = startBearing;
-                    currentCameraPos = [...routeCoordinates[0]];
+                    currentCameraPos = [...startPos];
                     currentRunnerPos = [...routeCoordinates[0]];
                 }
             }
@@ -977,15 +993,23 @@
                 }
                 
                 const phys = calculateCameraPhysics(currentDistance, totalRouteDistance, currentCameraBearing);
-                let pWeight = Math.pow((100 - cameraSmoothness) / 100, 2) * 0.4 + 0.1;
-                currentCameraPos[0] += (phys.rPos[0] - currentCameraPos[0]) * pWeight;
-                currentCameraPos[1] += (phys.rPos[1] - currentCameraPos[1]) * pWeight;
-                currentCameraBearing = phys.newBearing;
+                
+                if (isTrackRun) {
+                    let pWeight = Math.pow((100 - cameraSmoothness) / 100, 2) * 0.4 + 0.1;
+                    currentCameraPos[0] += (trackCenter[0] - currentCameraPos[0]) * pWeight;
+                    currentCameraPos[1] += (trackCenter[1] - currentCameraPos[1]) * pWeight;
+                    currentCameraBearing = (currentDistance / totalRouteDistance) * 360;
+                } else {
+                    let pWeight = Math.pow((100 - cameraSmoothness) / 100, 2) * 0.4 + 0.1;
+                    currentCameraPos[0] += (phys.rPos[0] - currentCameraPos[0]) * pWeight;
+                    currentCameraPos[1] += (phys.rPos[1] - currentCameraPos[1]) * pWeight;
+                    currentCameraBearing = phys.newBearing;
+                }
                 
                 currentRunnerPos = [...phys.rPos];
 
                 map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': currentRunnerPos } });
-                updateRouteSlicingByPoint(currentRunnerPos);
+                updateRouteSlicingByDist(currentDistance);
                 
                 map.jumpTo({ 
                     center: currentCameraPos, 
@@ -1014,7 +1038,7 @@
                 const cBearing = lerpBearing(outroStartBearing + cameraRotationOffset, 0, easeT);
                 
                 map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': currentRunnerPos } });
-                updateRouteSlicingByPoint(currentRunnerPos);
+                updateRouteSlicingByDist(totalRouteDistance);
                 
                 map.jumpTo({ center: cCenter, zoom: cZoom, pitch: cPitch, bearing: cBearing, padding: { top: padTop * (1-easeT), bottom: padBottom * (1-easeT), left: 0, right: 0 } });
                 renderStatsOverlay(totalRouteDistance);
@@ -1029,7 +1053,7 @@
                     return;
                 }
                 map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': currentRunnerPos } });
-                updateRouteSlicingByPoint(currentRunnerPos);
+                updateRouteSlicingByDist(totalRouteDistance);
                 map.jumpTo({ center: overview.center, zoom: overview.zoom, pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
                 renderStatsOverlay(totalRouteDistance);
                 playFrameIdx++;
@@ -1255,26 +1279,27 @@
 
             const overview = getOverviewCamera();
             const physStart = calculateCameraPhysics(0, totalRouteDistance, 0);
-            const startBearing = physStart.targetB;
+            const startBearing = isTrackRun ? 0 : physStart.targetB;
+            const startPos = isTrackRun ? trackCenter : routeCoordinates[0];
 
             // Phase 1: Intro
             if (enableIntro) {
                 for (let f = 0; f < holdFrames; f++) {
                     map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[0] } });
-                    updateRouteSlicingByPoint(routeCoordinates[0]);
+                    updateRouteSlicingByDist(0);
                     map.jumpTo({ center: overview.center, zoom: overview.zoom + zoomOffset, pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
                     await recordFrame(0);
                 }
                 for (let f = 0; f <= transFrames; f++) {
                     const t = f / transFrames;
                     const easeT = easeInOut(t);
-                    const cCenter = lerpLngLat(overview.center, routeCoordinates[0], easeT);
+                    const cCenter = lerpLngLat(overview.center, startPos, easeT);
                     const cZoom = lerp(overview.zoom + zoomOffset, exportCameraZoom, easeT);
                     const cPitch = lerp(0, cameraPitch, easeT);
                     const cBearing = lerpBearing(0, startBearing, easeT);
                     
                     map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[0] } });
-                    updateRouteSlicingByPoint(routeCoordinates[0]);
+                    updateRouteSlicingByDist(0);
                     map.jumpTo({ center: cCenter, zoom: cZoom, pitch: cPitch, bearing: cBearing, padding: { top: padTopExport * easeT, bottom: padBottomExport * easeT, left: 0, right: 0 } });
                     await recordFrame(0);
                 }
@@ -1283,20 +1308,28 @@
             // Phase 2: Simulation Loop
             let exDist = 0.0;
             let exBearing = startBearing;
-            let exPos = [...routeCoordinates[0]];
+            let exPos = [...startPos];
             let exRunnerPos = [...routeCoordinates[0]];
 
             while (exDist < totalRouteDistance) {
                 const phys = calculateCameraPhysics(exDist, totalRouteDistance, exBearing);
-                let pWeight = Math.pow((100 - cameraSmoothness) / 100, 2) * 0.4 + 0.1;
-                exPos[0] += (phys.rPos[0] - exPos[0]) * pWeight;
-                exPos[1] += (phys.rPos[1] - exPos[1]) * pWeight;
-                exBearing = phys.newBearing;
+                
+                if (isTrackRun) {
+                    let pWeight = Math.pow((100 - cameraSmoothness) / 100, 2) * 0.4 + 0.1;
+                    exPos[0] += (trackCenter[0] - exPos[0]) * pWeight;
+                    exPos[1] += (trackCenter[1] - exPos[1]) * pWeight;
+                    exBearing = (exDist / totalRouteDistance) * 360;
+                } else {
+                    let pWeight = Math.pow((100 - cameraSmoothness) / 100, 2) * 0.4 + 0.1;
+                    exPos[0] += (phys.rPos[0] - exPos[0]) * pWeight;
+                    exPos[1] += (phys.rPos[1] - exPos[1]) * pWeight;
+                    exBearing = phys.newBearing;
+                }
                 
                 exRunnerPos = [...phys.rPos];
 
                 map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': exRunnerPos } });
-                updateRouteSlicingByPoint(exRunnerPos);
+                updateRouteSlicingByDist(exDist);
                 
                 map.jumpTo({ center: exPos, zoom: exportCameraZoom, pitch: cameraPitch, bearing: exBearing + cameraRotationOffset, padding: { top: padTopExport, bottom: padBottomExport, left: 0, right: 0 } });
                 await recordFrame(exDist);
@@ -1316,13 +1349,13 @@
                     const cBearing = lerpBearing(exOutroStartBearing + cameraRotationOffset, 0, easeT);
                     
                     map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': exRunnerPos } });
-                    updateRouteSlicingByPoint(exRunnerPos);
+                    updateRouteSlicingByDist(totalRouteDistance);
                     map.jumpTo({ center: cCenter, zoom: cZoom, pitch: cPitch, bearing: cBearing, padding: { top: padTopExport * (1-easeT), bottom: padBottomExport * (1-easeT), left: 0, right: 0 } });
                     await recordFrame(totalRouteDistance);
                 }
                 for (let f = 0; f < holdFrames; f++) {
                     map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': exRunnerPos } });
-                    updateRouteSlicingByPoint(exRunnerPos);
+                    updateRouteSlicingByDist(totalRouteDistance);
                     map.jumpTo({ center: overview.center, zoom: overview.zoom + zoomOffset, pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
                     await recordFrame(totalRouteDistance);
                 }
