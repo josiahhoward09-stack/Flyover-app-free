@@ -1,1410 +1,530 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pro Route Flyover Engine</title>
-    
-    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
-    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
-    
-    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
-    <script src="https://unpkg.com/webm-muxer/build/webm-muxer.js"></script>
-
-    <style>
-        /* MODERN DESIGN SYSTEM */
-        :root {
-            --bg-dark: #111;
-            --surface: #ffffff;
-            --surface-hover: #f9f9fb;
-            --border: #e2e2e8;
-            --text-main: #242428;
-            --text-muted: #6d6d78;
-            --accent: #fc4c02; /* Strava Orange */
-            --accent-hover: #e34300;
-            --blue: #00aeff;
-            --radius: 8px;
-            --shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }
-
-        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg-dark); overflow: hidden; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-        
-        /* Dashboard Container */
-        #ui-panel {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            bottom: 20px; 
-            width: 360px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            z-index: 10;
-            pointer-events: none;
-        }
-
-        /* Scrollable inner content */
-        .panel-content {
-            pointer-events: auto;
-            flex: 1; 
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            padding-right: 4px;
-        }
-
-        .panel-content::-webkit-scrollbar { width: 6px; }
-        .panel-content::-webkit-scrollbar-track { background: transparent; }
-        .panel-content::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
-
-        h2 { margin: 0 0 4px 0; font-size: 24px; font-weight: 800; color: var(--surface); text-shadow: 0 2px 8px rgba(0,0,0,0.5); pointer-events: auto;}
-        
-        /* Collapsible Cards */
-        details {
-            background: var(--surface);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            border: 1px solid var(--border);
-            overflow: hidden;
-            transition: all 0.2s ease;
-            flex-shrink: 0; 
-        }
-
-        summary {
-            padding: 16px;
-            font-weight: 700;
-            font-size: 14px;
-            color: var(--text-main);
-            cursor: pointer;
-            list-style: none;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: var(--surface);
-            user-select: none;
-        }
-
-        summary:hover { background: var(--surface-hover); }
-        summary::-webkit-details-marker { display: none; }
-        
-        summary::after {
-            content: '+';
-            color: var(--accent);
-            font-size: 18px;
-            transition: transform 0.2s ease;
-        }
-        details[open] summary::after { content: '−'; }
-        details[open] summary { border-bottom: 1px solid var(--border); }
-
-        .details-body { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
-
-        /* Controls */
-        .control-group { display: flex; flex-direction: column; gap: 6px; }
-        .row-group { display: flex; gap: 12px; }
-        .row-group > * { flex: 1; }
-
-        label { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-main); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;}
-        .val-display { color: var(--accent); font-weight: 700; }
-        
-        input[type="file"] { display: none; }
-        input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; height: 4px; background: #efefef; border-radius: 4px; appearance: none; outline: none; margin-top: 4px;}
-        input[type="range"]::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.2); transition: transform 0.1s; }
-        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
-        input[type="color"] { width: 100%; height: 36px; border: 1px solid var(--border); border-radius: var(--radius); padding: 2px; cursor: pointer; background: #fff; }
-
-        .text-input, .select-input { width: 100%; padding: 10px; background: #ffffff; color: var(--text-main); border: 1px solid var(--border); border-radius: var(--radius); box-sizing: border-box; font-family: inherit; font-size: 13px; font-weight: 500; transition: all 0.2s ease; }
-        .text-input:focus, .select-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(252, 76, 2, 0.1); }
-
-        .btn { display: flex; align-items: center; justify-content: center; width: 100%; padding: 12px; border-radius: var(--radius); cursor: pointer; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.2s ease; box-sizing: border-box; border: none; }
-        .btn-upload { background: var(--surface-hover); color: var(--text-main); border: 1px solid var(--border); padding: 10px; font-size: 12px; }
-        .btn-upload:hover { background: #ececf1; }
-        .btn-primary { background: var(--accent); color: white; box-shadow: 0 2px 10px rgba(252, 76, 2, 0.3); }
-        .btn-primary:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 15px rgba(252, 76, 2, 0.4); }
-        .btn-primary:disabled, .btn-secondary:disabled { background: #e0e0e5; color: #a0a0a5; cursor: not-allowed; box-shadow: none; transform: none; }
-        .btn-secondary { background: var(--text-main); color: white; }
-        .btn-secondary:hover:not(:disabled) { background: #000; }
-
-        /* Floating Playback Controls */
-        .playback-bar {
-            background: var(--surface);
-            padding: 12px;
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            border: 1px solid var(--border);
-            display: flex;
-            gap: 8px;
-            pointer-events: auto;
-            flex-shrink: 0;
-        }
-
-        .checkbox-container { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--text-main); text-transform: uppercase;}
-        .checkbox-container input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0;}
-
-        #status { font-size: 12px; color: var(--surface); text-align: left; margin-top: 4px; font-weight: 600; text-shadow: 0 1px 4px rgba(0,0,0,0.5); pointer-events: auto; flex-shrink: 0;}
-
-        /* HUD Overlay */
-        #stats-overlay {
-            position: absolute;
-            bottom: 40px;
-            right: 40px;
-            display: flex;
-            gap: 12px;
-            pointer-events: none;
-            z-index: 5;
-            display: none;
-            font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
-            transform-origin: bottom right;
-        }
-        .stat-box {
-            background: rgba(15, 15, 20, 0.85);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            border-radius: 8px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-            display: flex;
-            align-items: center;
-            height: 60px;
-            padding: 0 20px;
-            border-left: 6px solid;
-            position: relative;
-            overflow: hidden;
-            border-top: 1px solid rgba(255,255,255,0.05);
-            border-right: 1px solid rgba(255,255,255,0.05);
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
-        .stat-label { font-size: 14px; color: rgba(255, 255, 255, 0.5); font-weight: 700; text-align: right; margin-right: 15px; letter-spacing: 1px; }
-        .stat-value { font-size: 32px; font-weight: 800; }
-    </style>
-</head>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Pro Route Flyover Engine - Studio Edition</title><script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script><link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" /><script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script><script src="https://unpkg.com/webm-muxer/build/webm-muxer.js"></script>
+<style>
+:root {
+  --bg-dark: #121212;
+  --surface: #1e1e1e;
+  --surface-hover: #2a2a2a;
+  --border: #333333;
+  --border-light: #4a4a4a;
+  --text-main: #f5f5f5;
+  --text-muted: #9e9e9e;
+  --accent: #10b981;
+  --accent-hover: #34d399;
+  --blue: #3b82f6;
+  --danger: #f43f5e;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 18px;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 16px rgba(16, 185, 129, 0.25);
+  --timeline-bg: #0a0a0a;
+  --timeline-grid: rgba(255, 255, 255, 0.04);
+  --font-stack: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'Fira Code', ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
+}
+body { margin: 0; padding: 0; font-family: var(--font-stack); background: var(--bg-dark); color: var(--text-main); overflow: hidden; -webkit-font-smoothing: antialiased; letter-spacing: 0.3px; }
+#map { position: absolute; top: 0; bottom: 260px; width: 100%; transition: bottom .25s ease-out; background: #000; }
+#ui-panel { position: absolute; top: 20px; left: 20px; bottom: 280px; width: 360px; display: flex; flex-direction: column; gap: 16px; z-index: 10; pointer-events: none; }
+.panel-content { pointer-events: auto; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 10px; padding-bottom: 20px; }
+.panel-content::-webkit-scrollbar { width: 5px; }
+.panel-content::-webkit-scrollbar-track { background: transparent; }
+.panel-content::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 8px; }
+.panel-content::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+h2 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.5px; background: linear-gradient(90deg, #ffffff, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent; pointer-events: auto; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.6)); }
+details { background: var(--surface); border-radius: var(--radius-md); box-shadow: var(--shadow); border: 1px solid var(--border); overflow: hidden; transition: border-color 0.2s ease, box-shadow 0.2s ease; flex-shrink: 0; }
+details:hover { border-color: var(--border-light); box-shadow: 0 12px 32px rgba(0,0,0,0.6); }
+summary { padding: 14px 18px; font-weight: 600; font-size: 14px; color: var(--text-main); cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; user-select: none; transition: background .2s, color .2s; }
+summary:hover { background: var(--surface-hover); color: var(--accent-hover); }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: '›'; color: var(--text-muted); font-size: 20px; transition: transform .3s cubic-bezier(0.4, 0, 0.2, 1); transform: rotate(90deg); }
+details[open] summary::after { transform: rotate(-90deg); color: var(--accent); }
+details[open] summary { border-bottom: 1px solid var(--border); background: rgba(0, 0, 0, 0.2); }
+.details-body { padding: 16px; display: flex; flex-direction: column; gap: 18px; background: rgba(0, 0, 0, 0.1); }
+.control-group { display: flex; flex-direction: column; gap: 8px; }
+.row-group { display: flex; gap: 12px; }
+.row-group > * { flex: 1; }
+label { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+.val-display { color: var(--text-main); font-weight: 700; display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 12px; }
+.editable-val { cursor: text; transition: all .2s; border-radius: 4px; padding: 2px 6px; margin-right: -4px; border: 1px solid transparent; background: rgba(255,255,255,0.03); }
+.editable-val:hover { color: var(--accent); background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.2); }
+.kf-btn { color: var(--text-muted); cursor: pointer; font-size: 14px; transition: all .2s; margin-left: 6px; }
+.kf-btn:hover { color: var(--accent); transform: scale(1.2) translateY(-1px); }
+.kf-btn.active { color: var(--accent); text-shadow: var(--shadow-glow); }
+.reset-btn { color: rgba(255, 255, 255, 0.2); cursor: pointer; font-size: 13px; transition: all .2s; }
+.reset-btn:hover { color: var(--text-main); transform: rotate(-90deg); }
+input[type="file"] { display: none; }
+input[type="range"] { width: 100%; cursor: pointer; height: 6px; background: var(--border); border-radius: 10px; appearance: none; outline: none; transition: background .2s; margin-top: 4px; }
+input[type="range"]:hover { background: var(--border-light); }
+input[type="range"]::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid var(--surface); box-shadow: 0 2px 6px rgba(0,0,0,0.6); transition: transform .2s ease; }
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.25); background: var(--accent-hover); box-shadow: var(--shadow-glow); }
+input[type="color"] { width: 100%; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px; cursor: pointer; background: var(--surface); transition: border-color .2s; }
+input[type="color"]:hover { border-color: var(--accent); }
+.text-input, .select-input { width: 100%; padding: 10px 14px; background: rgba(0, 0, 0, 0.3); color: var(--text-main); border: 1px solid var(--border); border-radius: var(--radius-sm); box-sizing: border-box; font-family: var(--font-stack); font-size: 13px; font-weight: 500; transition: all .2s ease; outline: none; }
+.text-input:focus, .select-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2); background: rgba(0, 0, 0, 0.5); }
+.checkbox-container { display: flex; align-items: center; justify-content: flex-start; gap: 10px; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--text-main); text-transform: none; letter-spacing: 0; transition: color .2s; }
+.checkbox-container:hover { color: var(--accent-hover); }
+.checkbox-container input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; cursor: pointer; border-radius: 4px; }
+.btn { display: flex; align-items: center; justify-content: center; width: 100%; padding: 12px 16px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; transition: all .2s ease; box-sizing: border-box; border: none; }
+.btn-upload { background: var(--surface-hover); color: var(--text-main); border: 1px solid var(--border); }
+.btn-upload:hover { background: var(--border-light); color: #fff; border-color: var(--text-muted); }
+.btn-primary { background: var(--accent); color: #000; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); box-shadow: var(--shadow-glow); }
+.btn-primary:disabled, .btn-secondary:disabled { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); cursor: not-allowed; opacity: 0.6; transform: none; box-shadow: none; }
+#stats-overlay { position: absolute; display: flex; gap: 12px; pointer-events: none; z-index: 5; display: none; font-family: var(--font-mono); }
+.stat-box { background: rgba(18, 18, 18, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: var(--radius-sm); box-shadow: var(--shadow); display: flex; align-items: center; height: 56px; padding: 0 20px; border-left: 4px solid; position: relative; overflow: hidden; border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.stat-label { font-size: 11px; color: var(--text-muted); font-weight: 600; text-align: right; margin-right: 14px; letter-spacing: 1.5px; }
+.stat-value { font-size: 26px; font-weight: 700; }
+#timeline-panel { position: absolute; bottom: 0; left: 0; width: 100%; height: 260px; background: var(--timeline-bg); border-top: 1px solid var(--border); display: flex; flex-direction: column; z-index: 1000; user-select: none; box-shadow: 0 -10px 40px rgba(0,0,0,0.6); }
+#timeline-toolbar { height: 50px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: center; padding: 0 20px; flex-shrink: 0; position: relative; }
+#timeline-toolbar .playback-controls { display: flex; gap: 10px; }
+#timeline-toolbar .playback-controls button { background: rgba(0,0,0,0.2); border: 1px solid var(--border); color: var(--text-main); padding: 8px 18px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 12px; text-transform: uppercase; transition: all .2s; display: flex; align-items: center; gap: 6px; letter-spacing: 0.5px; }
+#timeline-toolbar .playback-controls button:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--border-light); }
+#timeline-toolbar .playback-controls button:disabled { opacity: 0.3; cursor: not-allowed; border-color: transparent; }
+#timeline-toolbar .playback-controls button.play-btn { background: rgba(16, 185, 129, 0.1); color: var(--accent); border-color: rgba(16, 185, 129, 0.3); }
+#timeline-toolbar .playback-controls button.play-btn:hover:not(:disabled) { background: var(--accent); color: #000; box-shadow: var(--shadow-glow); }
+#timeline-status { position: absolute; right: 20px; font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+#timeline-body { display: flex; flex: 1; overflow: hidden; }
+#timeline-labels { width: 240px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: hidden; flex-shrink: 0; z-index: 10; box-shadow: 4px 0 15px rgba(0,0,0,0.4); }
+.track-label-header { height: 32px; background: var(--bg-dark); border-bottom: 1px solid var(--border); }
+.track-label { height: 36px; line-height: 36px; padding: 0 16px; font-size: 11px; font-weight: 600; color: var(--text-main); border-bottom: 1px solid rgba(255, 255, 255, 0.03); display: flex; justify-content: space-between; align-items: center; background: transparent; transition: background 0.2s; }
+.track-label:hover { background: rgba(255, 255, 255, 0.04); color: var(--accent); }
+#timeline-tracks-scroll-container { flex: 1; overflow-x: auto; overflow-y: auto; background: var(--timeline-bg); position: relative; }
+#timeline-zoom-container { width: 100%; min-height: 100%; position: relative; transform-origin: left top; }
+#time-ruler { position: sticky; top: 0; left: 0; width: 100%; height: 32px; background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(4px); border-bottom: 1px solid var(--border); z-index: 20; pointer-events: auto; cursor: ew-resize; }
+#time-ruler-canvas { width: 100%; height: 100%; pointer-events: none; }
+#timeline-grid-bg { position: absolute; top: 32px; left: 0; width: 100%; height: calc(100% - 32px); background-image: linear-gradient(to right, var(--timeline-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--timeline-grid) 1px, transparent 1px); background-size: 5% 36px; pointer-events: none; opacity: 0.8; }
+#timeline-tracks { position: absolute; top: 32px; left: 0; width: 100%; }
+.track-lane { height: 36px; position: relative; border-bottom: 1px solid rgba(255, 255, 255, 0.02); transition: background 0.2s; }
+.track-lane:hover { background: rgba(255, 255, 255, 0.02); }
+.keyframe { position: absolute; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 12px; height: 12px; background: var(--text-muted); border: 2px solid var(--bg-dark); cursor: grab; z-index: 5; transition: background .15s, transform .15s, border-color .15s; border-radius: 3px; }
+.keyframe:active { cursor: grabbing; transform: translate(-50%, -50%) rotate(45deg) scale(0.9); }
+.keyframe::after { content: ''; position: absolute; top: -10px; left: -10px; right: -10px; bottom: -10px; cursor: inherit; }
+.keyframe:hover { background: #fff; transform: translate(-50%, -50%) rotate(45deg) scale(1.3); z-index: 10; border-color: var(--accent); }
+.keyframe.active { background: var(--accent); border-color: #fff; z-index: 10; box-shadow: var(--shadow-glow); }
+.keyframe.editing { background: var(--text-main); border-color: var(--accent); box-shadow: 0 0 15px rgba(16, 185, 129, 0.6); transform: translate(-50%, -50%) rotate(45deg) scale(1.4); z-index: 15; }
+#playhead { position: absolute; top: 32px; bottom: 0; width: 2px; background: var(--accent); z-index: 10; pointer-events: none; transform: translateX(-50%); box-shadow: 0 0 12px rgba(16, 185, 129, 0.5); }
+#playhead::before { content: ''; position: absolute; top: -32px; left: 50%; transform: translateX(-50%); width: 14px; height: 14px; background: var(--accent); border-radius: 2px; clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%); }
+.kf-clear-btn { background: none; border: none; color: rgba(255, 255, 255, 0.2); font-size: 16px; font-weight: bold; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all .2s; }
+.kf-clear-btn:hover { color: var(--danger); background: rgba(244, 63, 94, 0.15); }
+#kf-editor { position: absolute; background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(12px); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.8); z-index: 2000; display: none; flex-direction: column; gap: 14px; width: 220px; }
+#kf-editor h4 { margin: 0; color: var(--text-main); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+#kf-editor .editor-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+#kf-editor input { width: 90px; background: rgba(0,0,0,0.4); color: white; border: 1px solid var(--border); padding: 8px 10px; border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 12px; outline: none; transition: all .2s; }
+#kf-editor input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2); }
+#kf-editor input[type="color"] { padding: 0; width: 90px; height: 32px; }
+#export-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(10px); z-index: 9999; display: none; flex-direction: column; align-items: center; justify-content: center; color: white; }
+.export-card { background: var(--surface); padding: 36px; border-radius: var(--radius-lg); border: 1px solid var(--border-light); box-shadow: 0 25px 60px rgba(0,0,0,0.9); width: 500px; display: flex; flex-direction: column; gap: 24px; }
+.export-preview { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); position: relative; box-shadow: inset 0 0 20px rgba(0,0,0,0.8); }
+.export-preview canvas { width: 100%; height: 100%; object-fit: contain; }
+.export-progress-bar { width: 100%; height: 12px; background: rgba(0, 0, 0, 0.5); border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+.export-progress-fill { height: 100%; background: linear-gradient(90deg, #10b981, #34d399); width: 0%; transition: width .1s linear; box-shadow: var(--shadow-glow); }
+.export-stats { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); font-family: var(--font-mono); font-weight: 600; text-transform: uppercase; }
+.spinner { width: 20px; height: 20px; border: 3px solid rgba(16, 185, 129, 0.2); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; display: inline-block; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+.resize-handle-x { position: absolute; right: -4px; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 100; pointer-events: auto; }
+.resize-handle-x:hover { background: rgba(16, 185, 129, 0.2); }
+.collapse-tab-x { position: absolute; right: -28px; top: 20px; width: 28px; height: 44px; background: var(--surface); border: 1px solid var(--border); border-left: none; border-radius: 0 6px 6px 0; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-main); z-index: 100; pointer-events: auto; transition: background 0.2s, color 0.2s; font-size: 16px; user-select: none; box-shadow: 4px 0 10px rgba(0,0,0,0.4); }
+.collapse-tab-x:hover { background: var(--surface-hover); color: var(--accent); }
+.resize-handle-y { position: absolute; top: -4px; left: 0; right: 0; height: 8px; cursor: ns-resize; z-index: 100; pointer-events: auto; }
+.resize-handle-y:hover { background: rgba(16, 185, 129, 0.2); }
+.collapse-tab-y { position: absolute; top: -28px; right: 20px; width: 44px; height: 28px; background: var(--surface); border: 1px solid var(--border); border-bottom: none; border-radius: 6px 6px 0 0; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-main); z-index: 100; pointer-events: auto; transition: background 0.2s, color 0.2s; font-size: 16px; user-select: none; box-shadow: 0 -4px 10px rgba(0,0,0,0.4); }
+.collapse-tab-y:hover { background: var(--surface-hover); color: var(--accent); }
+</style></head>
 <body>
-
-<div id="map"></div>
-<div id="stats-overlay"></div>
-
-<div id="ui-panel">
-    <h2>Flyover Engine</h2>
-    
-    <div class="panel-content">
-        <details open>
-            <summary>1. Data Import</summary>
-            <div class="details-body">
-                <div class="control-group">
-                    <label for="gpx-upload" class="btn btn-upload">Load GPX Route</label>
-                    <input type="file" id="gpx-upload" accept=".gpx" />
-                </div>
-                <div class="control-group">
-                    <label for="dexcom-upload" class="btn btn-upload">Load CGM Data (CSV)</label>
-                    <input type="file" id="dexcom-upload" accept=".csv,.txt" />
-                </div>
-            </div>
-        </details>
-
-        <details>
-            <summary>2. Camera Controls</summary>
-            <div class="details-body">
-                <div class="control-group">
-                    <label>Playback Speed <span id="speed-display" class="val-display">1.0x</span></label>
-                    <input type="range" id="speed-slider" min="0.1" max="25" step="0.1" value="1">
-                </div>
-                <div class="control-group">
-                    <label>Base Zoom <span id="zoom-display" class="val-display">15.8</span></label>
-                    <input type="range" id="zoom-slider" min="13.0" max="18.0" step="0.1" value="15.8">
-                </div>
-                <div class="control-group">
-                    <label>Pitch (Angle) <span id="pitch-display" class="val-display">60°</span></label>
-                    <input type="range" id="pitch-slider" min="0" max="85" step="1" value="60">
-                </div>
-                
-                <div class="control-group">
-                    <label>Vertical Framing <span id="framing-display" class="val-display">Center</span></label>
-                    <input type="range" id="framing-slider" min="-300" max="300" step="10" value="0">
-                </div>
-                <div class="control-group">
-                    <label>Rotation Offset <span id="rotation-display" class="val-display">0°</span></label>
-                    <input type="range" id="rotation-slider" min="-180" max="180" step="1" value="0">
-                </div>
-
-                <div class="control-group">
-                    <label>Camera Smoothness <span id="smoothness-display" class="val-display">45%</span></label>
-                    <input type="range" id="smoothness-slider" min="0" max="100" step="1" value="45">
-                </div>
-                <div class="control-group">
-                    <label>Terrain Exaggeration <span id="terrain-display" class="val-display">1.0x</span></label>
-                    <input type="range" id="terrain-slider" min="0" max="5" step="0.1" value="1">
-                </div>
-
-                <hr style="border: 0; border-top: 1px solid var(--border); width: 100%; margin: 4px 0;">
-                
-                <div class="control-group" style="gap: 10px;">
-                    <label class="checkbox-container"><input type="checkbox" id="show-intro-checkbox" checked> Show Full Path Intro</label>
-                    <label class="checkbox-container"><input type="checkbox" id="show-outro-checkbox" checked> Show Full Path Outro</label>
-                </div>
-                <div class="row-group">
-                    <div class="control-group">
-                        <label>Hold Time <span id="hold-duration-display" class="val-display">1.5s</span></label>
-                        <input type="range" id="hold-duration-slider" min="0" max="5" step="0.5" value="1.5">
-                    </div>
-                    <div class="control-group">
-                        <label>Transition <span id="transition-duration-display" class="val-display">2.0s</span></label>
-                        <input type="range" id="transition-duration-slider" min="0.5" max="5" step="0.5" value="2.0">
-                    </div>
-                </div>
-            </div>
-        </details>
-
-        <details>
-            <summary>3. Visuals & HUD</summary>
-            <div class="details-body">
-                <div class="control-group" style="gap: 10px;">
-                    <label class="checkbox-container"><input type="checkbox" id="show-mileage-checkbox"> Mileage Stat</label>
-                    <label class="checkbox-container"><input type="checkbox" id="show-timer-checkbox"> Elapsed Timer</label>
-                    <label class="checkbox-container"><input type="checkbox" id="show-pace-checkbox"> Pace</label>
-                    <label class="checkbox-container"><input type="checkbox" id="show-hr-checkbox"> Heart Rate</label>
-                    <label class="checkbox-container"><input type="checkbox" id="show-glucose-checkbox"> Glucose Level</label>
-                </div>
-                
-                <div class="row-group">
-                    <div class="control-group">
-                        <label>HUD Layout</label>
-                        <select id="stat-layout-select" class="select-input">
-                            <option value="vertical" selected>Vertical</option>
-                            <option value="horizontal">Horizontal</option>
-                        </select>
-                    </div>
-                    <div class="control-group">
-                        <label>HUD Size <span id="stat-size-display" class="val-display">1.0x</span></label>
-                        <input type="range" id="stat-size-slider" min="0.5" max="2.0" step="0.1" value="1.0">
-                    </div>
-                </div>
-
-                <hr style="border: 0; border-top: 1px solid var(--border); width: 100%; margin: 4px 0;">
-
-                <div class="control-group">
-                    <label>Route Mode</label>
-                    <select id="route-mode" class="select-input">
-                        <option value="solid" selected>Solid Route</option>
-                        <option value="progress">Dynamic Trail</option>
-                        <option value="hidden">Hidden</option>
-                    </select>
-                </div>
-
-                <div class="row-group">
-                    <div class="control-group">
-                        <label>Past Route</label>
-                        <input type="color" id="route-color-past" value="#fc4c02">
-                    </div>
-                    <div class="control-group">
-                        <label>Future Route</label>
-                        <input type="color" id="route-color-future" value="#6d6d78">
-                    </div>
-                </div>
-
-                <div class="control-group">
-                    <label>Route Thickness <span id="route-thickness-display" class="val-display">10px</span></label>
-                    <input type="range" id="route-thickness-slider" min="2" max="20" step="1" value="10">
-                </div>
-
-                <hr style="border: 0; border-top: 1px solid var(--border); width: 100%; margin: 4px 0;">
-
-                <div class="control-group">
-                    <label>Runner Size <span id="runner-size-display" class="val-display">10</span></label>
-                    <input type="range" id="runner-size-slider" min="2" max="20" step="1" value="10">
-                </div>
-
-                <div class="row-group">
-                    <div class="control-group">
-                        <label>Runner Fill</label>
-                        <input type="color" id="runner-color" value="#ffffff">
-                    </div>
-                    <div class="control-group">
-                        <label>Outline</label>
-                        <input type="color" id="runner-outline-color" value="#000000">
-                    </div>
-                </div>
-
-                <div class="control-group">
-                    <label for="runner-image-upload" class="btn btn-upload">Upload Custom Avatar</label>
-                    <input type="file" id="runner-image-upload" accept="image/*" />
-                </div>
-            </div>
-        </details>
-
-        <details>
-            <summary>4. Video Export</summary>
-            <div class="details-body">
-                <div class="control-group">
-                    <label>File Name</label>
-                    <input type="text" id="export-filename" class="text-input" value="My_Epic_Run">
-                </div>
-                <div class="row-group">
-                    <div class="control-group">
-                        <label>Resolution</label>
-                        <select id="export-res" class="select-input">
-                            <option value="720">720p (HD)</option>
-                            <option value="1080">1080p (FHD)</option>
-                            <option value="1440">2K (1440p)</option>
-                            <option value="2160" selected>4K (UHD)</option>
-                            <option value="4320">8K (FUHD)</option>
-                        </select>
-                    </div>
-                    <div class="control-group">
-                        <label>Frame Rate</label>
-                        <select id="export-fps" class="select-input">
-                            <option value="24">24 FPS</option>
-                            <option value="30">30 FPS</option>
-                            <option value="60" selected>60 FPS</option>
-                        </select>
-                    </div>
-                </div>
-                <button id="export-btn" class="btn btn-primary" disabled>Export Video</button>
-            </div>
-        </details>
-    </div>
-
-    <div class="playback-bar">
-        <button id="play-btn" class="btn btn-primary" disabled>Play</button>
-        <button id="pause-btn" class="btn btn-upload" disabled>Pause</button>
-        <button id="stop-btn" class="btn btn-upload" disabled>Stop</button>
-    </div>
-    
-    <div id="status">Ready for GPX Upload.</div>
-</div>
-
+<div id="export-modal"><div class="export-card"><h3 style="margin:0;font-size:20px;display:flex;align-items:center;gap:12px;letter-spacing:0.5px;font-weight:700;"><span class="spinner"></span> Rendering Video...</h3><div class="export-preview"><canvas id="export-preview-canvas"></canvas></div><div class="export-progress-bar"><div class="export-progress-fill" id="export-progress-fill"></div></div><div class="export-stats"><span id="export-pct" style="color:var(--text-main)">0%</span> <span id="export-eta">Calculating ETA...</span></div><button id="cancel-export-btn" class="btn btn-upload" style="margin-top:8px;color:var(--danger);border-color:rgba(244,63,94,0.3)">Cancel Export</button></div></div>
+<div id="map"></div><div id="stats-overlay"></div>
+<div id="kf-editor"><h4 id="kf-editor-title">Edit Keyframe</h4><div class="editor-row"><span>Time (%)</span><input type="number" id="kf-edit-time" step="0.1" min="0" max="100"></div><div class="editor-row"><span>Value</span><input type="text" id="kf-edit-value"></div><div class="row-group" style="margin-top:8px"><button class="btn btn-primary" onclick="saveKf()">Save</button> <button class="btn btn-upload" style="color:var(--danger);border-color:var(--danger)" onclick="deleteKf()">Delete</button></div></div>
+<div id="ui-panel"><div id="ui-resizer" class="resize-handle-x"></div><div id="ui-tab" class="collapse-tab-x">⟨</div><h2>Flyover Studio</h2><div class="panel-content"><details open><summary>1. Data & Assets</summary><div class="details-body"><div class="control-group"><label for="gpx-upload" class="btn btn-upload">Load GPX Route</label><input type="file" id="gpx-upload" accept=".gpx" /></div><div class="control-group"><label for="dexcom-upload" class="btn btn-upload">Load CGM Data (CSV)</label><input type="file" id="dexcom-upload" accept=".csv,.txt" /></div></div></details><details><summary>2. Camera & Environment</summary><div class="details-body"><div class="control-group"><label>Playback Speed <span class="val-display"><span class="reset-btn" onclick="resetSetting('speed')" title="Reset">↺</span><span class="kf-btn" onclick="toggleKeyframe('speed')" title="Toggle Keyframe at Playhead">♦</span> <span id="speed-display" class="editable-val" ondblclick="editInline(this, 'speed')">1.0x</span></span></label><input type="range" id="speed-slider" min="0.1" max="25" step="0.1" value="1"></div><div class="control-group"><label>Base Zoom <span class="val-display"><span class="reset-btn" onclick="resetSetting('zoom')" title="Reset">↺</span><span class="kf-btn" onclick="toggleKeyframe('zoom')" title="Toggle Keyframe at Playhead">♦</span> <span id="zoom-display" class="editable-val" ondblclick="editInline(this, 'zoom')">15.8</span></span></label><input type="range" id="zoom-slider" min="13.0" max="18.0" step="0.1" value="15.8"></div><div class="control-group"><label>Pitch (Angle) <span class="val-display"><span class="reset-btn" onclick="resetSetting('pitch')" title="Reset">↺</span><span class="kf-btn" onclick="toggleKeyframe('pitch')" title="Toggle Keyframe at Playhead">♦</span> <span id="pitch-display" class="editable-val" ondblclick="editInline(this, 'pitch')">60°</span></span></label><input type="range" id="pitch-slider" min="0" max="85" step="1" value="60"></div><div class="control-group"><label>Vertical Framing <span class="val-display"><span class="reset-btn" onclick="resetSetting('framing')" title="Reset">↺</span><span class="kf-btn" onclick="toggleKeyframe('framing')" title="Toggle Keyframe at Playhead">♦</span> <span id="framing-display" class="editable-val" ondblclick="editInline(this, 'framing')">Center</span></span></label><input type="range" id="framing-slider" min="-300" max="300" step="10" value="0"></div><div class="control-group"><label>Rotation Offset <span class="val-display"><span class="reset-btn" onclick="resetSetting('rotation')" title="Reset">↺</span><span class="kf-btn" onclick="toggleKeyframe('rotation')" title="Toggle Keyframe at Playhead">♦</span> <span id="rotation-display" class="editable-val" ondblclick="editInline(this, 'rotation')">0°</span></span></label><input type="range" id="rotation-slider" min="-3600" max="3600" step="1" value="0"></div><div class="control-group"><label>Camera Smoothness <span class="val-display"><span class="reset-btn" onclick="resetSetting('smoothness')" title="Reset">↺</span><span class="kf-btn" onclick="toggleKeyframe('smoothness')" title="Toggle Keyframe at Playhead">♦</span> <span id="smoothness-display" class="editable-val" ondblclick="editInline(this, 'smoothness')">45%</span></span></label><input type="range" id="smoothness-slider" min="0" max="100" step="1" value="45"></div><div class="control-group"><label>Terrain Exag. <span class="val-display"><span class="reset-btn" onclick="resetSetting('terrain')" title="Reset">↺</span><span class="kf-btn" onclick="toggleKeyframe('terrain')" title="Toggle Keyframe at Playhead">♦</span> <span id="terrain-display" class="editable-val" ondblclick="editInline(this, 'terrain')">1.0x</span></span></label><input type="range" id="terrain-slider" min="0" max="5" step="0.1" value="1"></div><div class="control-group"><label>Time of Day <span class="val-display"><span class="reset-btn" onclick="resetSetting('timeOfDay')" title="Reset">↺</span><span class="kf-btn" onclick="toggleKeyframe('timeOfDay')" title="Toggle Keyframe at Playhead">♦</span> <span id="time-display" class="editable-val" ondblclick="editInline(this, 'timeOfDay')">12:00</span></span></label><input type="range" id="time-slider" min="0" max="24" step="0.1" value="12"></div></div></details><details><summary>3. Route Styling</summary><div class="details-body"><div class="control-group"><label>Route Mode</label><select id="route-mode" class="select-input"><option value="solid" selected>Solid Route</option><option value="progress">Dynamic Trail</option><option value="hidden">Hidden</option></select></div><div class="row-group"><div class="control-group"><label>Past Route <span class="val-display"><span class="reset-btn" onclick="resetSetting('routeColorPast')">↺</span><span class="kf-btn" onclick="toggleKeyframe('routeColorPast')">♦</span></span></label><input type="color" id="route-color-past" value="#f97316"></div><div class="control-group"><label>Future Route <span class="val-display"><span class="reset-btn" onclick="resetSetting('routeColorFuture')">↺</span><span class="kf-btn" onclick="toggleKeyframe('routeColorFuture')">♦</span></span></label><input type="color" id="route-color-future" value="#52525b"></div></div><div class="control-group"><label>Route Thick <span class="val-display"><span class="reset-btn" onclick="resetSetting('routeThickness')">↺</span><span class="kf-btn" onclick="toggleKeyframe('routeThickness')">♦</span> <span id="route-thickness-display" class="editable-val" ondblclick="editInline(this, 'routeThickness')">10px</span></span></label><input type="range" id="route-thickness-slider" min="2" max="20" step="1" value="10"></div></div></details><details><summary>4. Mile Markers</summary><div class="details-body"><div class="control-group"><label>Visibility Mode <span class="val-display"><span class="reset-btn" onclick="resetSetting('markerMode')">↺</span><span class="kf-btn" onclick="toggleKeyframe('markerMode')">♦</span></span></label><select id="marker-mode" class="select-input"><option value="1">Always Seen</option><option value="2">Seen Before Runner Passes</option><option value="3">Seen After Runner Passes</option><option value="0" selected>Never Visible</option></select></div><div class="row-group"><div class="control-group"><label>Marker Color <span class="val-display"><span class="reset-btn" onclick="resetSetting('markerColor')">↺</span><span class="kf-btn" onclick="toggleKeyframe('markerColor')">♦</span></span></label><input type="color" id="marker-color" value="#000000"></div><div class="control-group"><label>Marker Size <span class="val-display"><span class="reset-btn" onclick="resetSetting('markerSize')">↺</span><span class="kf-btn" onclick="toggleKeyframe('markerSize')">♦</span> <span id="marker-size-display" class="editable-val" ondblclick="editInline(this, 'markerSize')">0.5x</span></span></label><input type="range" id="marker-size-slider" min="0.1" max="2" step="0.1" value="0.5"></div></div></div></details><details><summary>5. Runner & Avatar</summary><div class="details-body"><div class="control-group" style="gap:12px"><label class="checkbox-container"><input type="checkbox" id="show-runner-checkbox" checked> Show Runner <span style="margin-left:auto"><span class="reset-btn" onclick="event.preventDefault();event.stopPropagation();resetSetting('showRunner')">↺</span><span class="kf-btn" onclick="event.preventDefault();event.stopPropagation();toggleKeyframe('showRunner')" title="Toggle Keyframe">♦</span></span></label><label class="checkbox-container"><input type="checkbox" id="show-runner-outline-checkbox" checked> Show Runner Outline <span style="margin-left:auto"><span class="reset-btn" onclick="event.preventDefault();event.stopPropagation();resetSetting('showRunnerOutline')">↺</span><span class="kf-btn" onclick="event.preventDefault();event.stopPropagation();toggleKeyframe('showRunnerOutline')" title="Toggle Keyframe">♦</span></span></label></div><div class="control-group"><label>Runner Size <span class="val-display"><span class="reset-btn" onclick="resetSetting('runnerSize')">↺</span><span class="kf-btn" onclick="toggleKeyframe('runnerSize')">♦</span> <span id="runner-size-display" class="editable-val" ondblclick="editInline(this, 'runnerSize')">10</span></span></label><input type="range" id="runner-size-slider" min="2" max="20" step="1" value="10"></div><div class="control-group"><label>Outline Thick <span class="val-display"><span class="reset-btn" onclick="resetSetting('runnerOutlineThickness')">↺</span><span class="kf-btn" onclick="toggleKeyframe('runnerOutlineThickness')">♦</span> <span id="runner-outline-thickness-display" class="editable-val" ondblclick="editInline(this, 'runnerOutlineThickness')">4px</span></span></label><input type="range" id="runner-outline-thickness-slider" min="0" max="10" step="1" value="4"></div><div class="row-group"><div class="control-group"><label>Runner Fill <span class="val-display"><span class="reset-btn" onclick="resetSetting('runnerColor')">↺</span><span class="kf-btn" onclick="toggleKeyframe('runnerColor')">♦</span></span></label><input type="color" id="runner-color" value="#ffffff"></div><div class="control-group"><label>Outline <span class="val-display"><span class="reset-btn" onclick="resetSetting('runnerOutlineColor')">↺</span><span class="kf-btn" onclick="toggleKeyframe('runnerOutlineColor')">♦</span></span></label><input type="color" id="runner-outline-color" value="#000000"></div></div><div class="row-group"><div class="control-group"><label for="runner-image-upload" class="btn btn-upload">Upload Custom Avatar</label><input type="file" id="runner-image-upload" accept="image/*" /></div><div class="control-group"><button class="btn btn-upload" style="color:var(--danger); border-color: rgba(244,63,94,0.3)" onclick="clearCustomAvatar()">Clear Avatar</button></div></div></div></details><details><summary>6. Lap & Track Mode</summary><div class="details-body"><div class="control-group" style="gap:12px"><label class="checkbox-container"><input type="checkbox" id="enable-loop-checkbox" checked> Enable Lap Mode <span style="margin-left:auto"><span class="reset-btn" onclick="event.preventDefault();event.stopPropagation();resetSetting('enableLoop')">↺</span><span class="kf-btn" onclick="event.preventDefault();event.stopPropagation();toggleKeyframe('enableLoop')" title="Toggle Keyframe">♦</span></span></label><label class="checkbox-container"><input type="checkbox" id="show-lap-circle-checkbox"> Show Lap Circle Visual <span style="margin-left:auto"><span class="reset-btn" onclick="event.preventDefault();event.stopPropagation();resetSetting('showLapCircle')">↺</span><span class="kf-btn" onclick="event.preventDefault();event.stopPropagation();toggleKeyframe('showLapCircle')" title="Toggle Keyframe">♦</span></span></label></div><div class="row-group"><div class="control-group"><label>Lap X Offset <span class="val-display"><span class="reset-btn" onclick="resetSetting('lapOffsetX')">↺</span><span class="kf-btn" onclick="toggleKeyframe('lapOffsetX')">♦</span> <span id="lap-offset-x-display" class="editable-val" ondblclick="editInline(this, 'lapOffsetX')">0.000°</span></span></label><input type="range" id="lap-offset-x-slider" min="-0.1" max="0.1" step="0.001" value="0"></div><div class="control-group"><label>Lap Y Offset <span class="val-display"><span class="reset-btn" onclick="resetSetting('lapOffsetY')">↺</span><span class="kf-btn" onclick="toggleKeyframe('lapOffsetY')">♦</span> <span id="lap-offset-y-display" class="editable-val" ondblclick="editInline(this, 'lapOffsetY')">0.000°</span></span></label><input type="range" id="lap-offset-y-slider" min="-0.1" max="0.1" step="0.001" value="0"></div></div><div class="row-group"><div class="control-group"><label>Lap Radius <span class="val-display"><span class="reset-btn" onclick="resetSetting('lapRadius')">↺</span><span class="kf-btn" onclick="toggleKeyframe('lapRadius')">♦</span> <span id="lap-radius-display" class="editable-val" ondblclick="editInline(this, 'lapRadius')">0.0km</span></span></label><input type="range" id="lap-radius-slider" min="0" max="10" step="0.1" value="0"></div><div class="control-group"><label>Lap Rotation <span class="val-display"><span class="reset-btn" onclick="resetSetting('lapPhase')">↺</span><span class="kf-btn" onclick="toggleKeyframe('lapPhase')">♦</span> <span id="lap-phase-display" class="editable-val" ondblclick="editInline(this, 'lapPhase')">0°</span></span></label><input type="range" id="lap-phase-slider" min="-360" max="360" step="1" value="0"></div></div></div></details><details><summary>7. HUD Telemetry</summary><div class="details-body"><div class="control-group" style="gap:12px"><label class="checkbox-container"><input type="checkbox" id="show-mileage-checkbox"> Mileage Stat <span style="margin-left:auto"><span class="reset-btn" onclick="event.preventDefault();event.stopPropagation();resetSetting('showMileage')">↺</span><span class="kf-btn" onclick="event.preventDefault();event.stopPropagation();toggleKeyframe('showMileage')">♦</span></span></label><label class="checkbox-container"><input type="checkbox" id="show-timer-checkbox"> Elapsed Timer <span style="margin-left:auto"><span class="reset-btn" onclick="event.preventDefault();event.stopPropagation();resetSetting('showTimer')">↺</span><span class="kf-btn" onclick="event.preventDefault();event.stopPropagation();toggleKeyframe('showTimer')">♦</span></span></label><label class="checkbox-container"><input type="checkbox" id="show-pace-checkbox"> Pace <span style="margin-left:auto"><span class="reset-btn" onclick="event.preventDefault();event.stopPropagation();resetSetting('showPace')">↺</span><span class="kf-btn" onclick="event.preventDefault();event.stopPropagation();toggleKeyframe('showPace')">♦</span></span></label><label class="checkbox-container"><input type="checkbox" id="show-hr-checkbox"> Heart Rate <span style="margin-left:auto"><span class="reset-btn" onclick="event.preventDefault();event.stopPropagation();resetSetting('showHR')">↺</span><span class="kf-btn" onclick="event.preventDefault();event.stopPropagation();toggleKeyframe('showHR')">♦</span></span></label><label class="checkbox-container"><input type="checkbox" id="show-glucose-checkbox"> Glucose Level <span style="margin-left:auto"><span class="reset-btn" onclick="event.preventDefault();event.stopPropagation();resetSetting('showGlucose')">↺</span><span class="kf-btn" onclick="event.preventDefault();event.stopPropagation();toggleKeyframe('showGlucose')">♦</span></span></label></div><div class="row-group"><div class="control-group"><label>HUD Layout <span class="val-display"><span class="reset-btn" onclick="resetSetting('statLayout')">↺</span><span class="kf-btn" onclick="toggleKeyframe('statLayout')">♦</span></span></label><select id="stat-layout-select" class="select-input"><option value="vertical" selected>Vertical</option><option value="horizontal">Horizontal</option></select></div><div class="control-group"><label>HUD Size <span class="val-display"><span class="reset-btn" onclick="resetSetting('hudSize')">↺</span><span class="kf-btn" onclick="toggleKeyframe('hudSize')">♦</span> <span id="stat-size-display" class="editable-val" ondblclick="editInline(this, 'hudSize')">1.0x</span></span></label><input type="range" id="stat-size-slider" min="0.5" max="2.0" step="0.1" value="1.0"></div></div><div class="row-group"><div class="control-group"><label>Align X <span class="val-display"><span class="reset-btn" onclick="resetSetting('hudAlignX')">↺</span><span class="kf-btn" onclick="toggleKeyframe('hudAlignX')">♦</span></span></label><select id="hud-align-x" class="select-input"><option value="0">Left</option><option value="1">Center</option><option value="2" selected>Right</option></select></div><div class="control-group"><label>Align Y <span class="val-display"><span class="reset-btn" onclick="resetSetting('hudAlignY')">↺</span><span class="kf-btn" onclick="toggleKeyframe('hudAlignY')">♦</span></span></label><select id="hud-align-y" class="select-input"><option value="0">Top</option><option value="1">Center</option><option value="2" selected>Bottom</option></select></div></div><div class="row-group"><div class="control-group" style="justify-content:center; margin-top:10px;"><label class="checkbox-container"><input type="checkbox" id="hud-bg-checkbox" checked> Show Background <span style="margin-left:auto"><span class="reset-btn" onclick="event.preventDefault();event.stopPropagation();resetSetting('hudBackground')">↺</span><span class="kf-btn" onclick="event.preventDefault();event.stopPropagation();toggleKeyframe('hudBackground')">♦</span></span></label></div><div class="control-group"><label>Text Color <span class="val-display"><span class="reset-btn" onclick="resetSetting('hudTextColor')">↺</span><span class="kf-btn" onclick="toggleKeyframe('hudTextColor')">♦</span></span></label><input type="color" id="hud-text-color" value="#ffffff"></div></div></div></details><details><summary>8. Intro & Outro Settings</summary><div class="details-body"><div class="control-group" style="gap:12px"><label class="checkbox-container"><input type="checkbox" id="show-intro-checkbox" checked> Show Full Path Intro</label><label class="checkbox-container"><input type="checkbox" id="show-outro-checkbox" checked> Show Full Path Outro</label></div><div class="row-group"><div class="control-group"><label>Hold Time <span id="hold-duration-display" class="val-display editable-val" ondblclick="editInline(this, 'holdDuration')">1.5s</span></label><input type="range" id="hold-duration-slider" min="0" max="5" step="0.5" value="1.5"></div><div class="control-group"><label>Transition <span id="transition-duration-display" class="val-display editable-val" ondblclick="editInline(this, 'transitionDuration')">2.0s</span></label><input type="range" id="transition-duration-slider" min="0.5" max="5" step="0.5" value="2.0"></div></div></div></details><details><summary>9. Video Export</summary><div class="details-body"><div class="control-group"><label>File Name</label><input type="text" id="export-filename" class="text-input" value="My_Epic_Run"></div><div class="row-group"><div class="control-group"><label>Resolution</label><select id="export-res" class="select-input"><option value="720">720p (HD)</option><option value="1080">1080p (FHD)</option><option value="1440">2K (1440p)</option><option value="2160" selected>4K (UHD)</option><option value="4320">8K (FUHD)</option></select></div><div class="control-group"><label>Frame Rate</label><select id="export-fps" class="select-input"><option value="24">24 FPS</option><option value="30">30 FPS</option><option value="60" selected>60 FPS</option></select></div></div><button id="export-btn" class="btn btn-primary" disabled>Export Video</button></div></details></div></div>
+<div id="timeline-panel"><div id="timeline-resizer" class="resize-handle-y"></div><div id="timeline-tab" class="collapse-tab-y">↓</div><div id="timeline-toolbar"><div style="position:absolute;left:20px;display:flex;align-items:center;gap:16px"><label id="proxy-container" style="position:relative;left:0;font-size:12px;font-weight:600;letter-spacing:0.5px"><input type="checkbox" id="proxy-mode-checkbox" checked style="accent-color:var(--accent);vertical-align:middle;width:14px;height:14px;"> Proxy Playback</label><label style="display:flex;align-items:center;gap:8px;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;letter-spacing:0.5px"><input type="checkbox" id="auto-kf-checkbox" style="accent-color:var(--accent)"><span style="display:inline-block;width:8px;height:8px;background:var(--accent);border-radius:50%;box-shadow:var(--shadow-glow)"></span> Auto-Keyframe</label></div><div class="playback-controls"><button id="play-btn" class="play-btn" disabled>▶ Play</button> <button id="pause-btn" disabled>⏸ Pause</button> <button id="stop-btn" disabled>⏹ Stop</button></div><div id="timeline-status">Progress: 0.00% | Dist: 0.00 MI</div></div><div id="timeline-body"><div id="timeline-labels"><div class="track-label-header"></div><div id="timeline-labels-inner"></div></div><div id="timeline-tracks-scroll-container"><div id="timeline-zoom-container"><div id="time-ruler"><canvas id="time-ruler-canvas"></canvas></div><div id="timeline-grid-bg"></div><div id="timeline-tracks"></div><div id="playhead"></div></div></div></div></div>
 <script>
-    const map = new maplibregl.Map({
-        container: 'map',
-        center: [-122.4194, 37.7749],
-        zoom: 11,
-        pitch: 60,
-        bearing: 0,
-        preserveDrawingBuffer: true,
-        style: {
-            version: 8,
-            sources: {
-                'satellite-tiles': { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 17 },
-                'terrain-source': { type: 'raster-dem', tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], encoding: 'terrarium', tileSize: 256, maxzoom: 13 }
-            },
-            layers: [{ id: 'satellite-layer', type: 'raster', source: 'satellite-tiles' }],
-            terrain: { source: 'terrain-source', exaggeration: 1 }
-        }
-    });
+const map=new maplibregl.Map({container:'map',center:[-122.4194,37.7749],zoom:11,pitch:60,bearing:0,preserveDrawingBuffer:true,style:{version:8,sources:{'satellite-tiles':{type:'raster',tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:17},'terrain-source':{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],encoding:'terrarium',tileSize:256,maxzoom:13}},layers:[{id:'satellite-layer',type:'raster',source:'satellite-tiles'}],terrain:{source:'terrain-source',exaggeration:1}}});
+const domCache={};const getEl=(id)=>domCache[id]||(domCache[id]=document.getElementById(id));
+const mapStateCache={};
+function updateMapPaint(layer,prop,value){const key=`${layer}_paint_${prop}`;if(mapStateCache[key]!==value){map.setPaintProperty(layer,prop,value);mapStateCache[key]=value;}}
+function updateMapLayout(layer,prop,value){const key=`${layer}_layout_${prop}`;if(mapStateCache[key]!==value){map.setLayoutProperty(layer,prop,value);mapStateCache[key]=value;}}
+function updateMapTerrain(source,exaggeration){const key=`terrain_exag`;if(mapStateCache[key]!==exaggeration){map.setTerrain({source:source,exaggeration:exaggeration});mapStateCache[key]=exaggeration;}}
+let routeCoordinates=[],originalDataPoints=[],dexcomData=[],animationId=null,currentDistance=0.0,currentCameraBearing=0,currentCameraPos=[0,0],currentRunnerPos=[0,0],playPhase='none',playFrameIdx=0,outroStartCenter=[0,0],outroStartBearing=0,rawRouteLine=null,totalRouteDistance=0,speedMultiplier=1.0,useCustomImage=false,isExporting=false,isTrackRun=false,trackCenter=[0,0];
+window.cancelExportFlag=false;
+const resolutionMap={"720":{w:1280,h:720,br:10000000},"1080":{w:1920,h:1080,br:25000000},"1440":{w:2560,h:1440,br:40000000},"2160":{w:3840,h:2160,br:80000000},"4320":{w:7680,h:4320,br:150000000}};
+window.addEventListener('keydown',(e)=>{if(e.code==='Space'){const activeTag=document.activeElement?document.activeElement.tagName:'';if(activeTag==='INPUT'||activeTag==='TEXTAREA'||activeTag==='SELECT')return;e.preventDefault();if(playPhase==='none'||playPhase==='done'){if(!getEl('play-btn').disabled)getEl('play-btn').click();}else{if(!getEl('pause-btn').disabled)getEl('pause-btn').click();}}});
+function hexToRgb(hex){let c=hex.substring(1).split('');if(c.length===3)c=[c[0],c[0],c[1],c[1],c[2],c[2]];c='0x'+c.join('');return[(c>>16)&255,(c>>8)&255,c&255];}
+function rgbToHex(r,g,b){return"#"+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);}
+function lerpColor(a,b,t){const ca=hexToRgb(a);const cb=hexToRgb(b);const r=Math.round(ca[0]+(cb[0]-ca[0])*t);const g=Math.round(ca[1]+(cb[1]-ca[1])*t);const bl=Math.round(ca[2]+(cb[2]-ca[2])*t);return rgbToHex(r,g,bl);}
+function lerp(start,end,t){return start+(end-start)*t;}
+function lerpLngLat(start,end,t){return[lerp(start[0],end[0],t),lerp(start[1],end[1],t)];}
+function lerpBearing(start,end,t){let diff=end-start;while(diff>180)diff-=360;while(diff<-180)diff+=360;return start+diff*t;}
+function easeInOut(t){return t<0.5?2*t*t:-1+(4-2*t)*t;}
+const animProps=[{id:'speed',label:'Speed',default:1.0,slider:'speed-slider',disp:'speed-display',suffix:'x'},{id:'zoom',label:'Zoom',default:15.8,slider:'zoom-slider',disp:'zoom-display'},{id:'pitch',label:'Pitch',default:60,slider:'pitch-slider',disp:'pitch-display',suffix:'°'},{id:'framing',label:'Framing Offset',default:0,slider:'framing-slider',disp:'framing-display',isFraming:true},{id:'rotation',label:'Rotation',default:0,slider:'rotation-slider',disp:'rotation-display',suffix:'°'},{id:'smoothness',label:'Cam Smoothness',default:45,slider:'smoothness-slider',disp:'smoothness-display',suffix:'%'},{id:'terrain',label:'Terrain Exag.',default:1.0,slider:'terrain-slider',disp:'terrain-display',suffix:'x'},{id:'timeOfDay',label:'Time of Day',default:12.0,slider:'time-slider',disp:'time-display'},{id:'enableLoop',label:'Lap Mode',default:1,input:'enable-loop-checkbox',type:'checkbox'},{id:'showLapCircle',label:'Show Lap Circle',default:0,input:'show-lap-circle-checkbox',type:'checkbox'},{id:'lapOffsetX',label:'Lap Offset X',default:0,slider:'lap-offset-x-slider',disp:'lap-offset-x-display',suffix:'°'},{id:'lapOffsetY',label:'Lap Offset Y',default:0,slider:'lap-offset-y-slider',disp:'lap-offset-y-display',suffix:'°'},{id:'lapRadius',label:'Lap Radius',default:0,slider:'lap-radius-slider',disp:'lap-radius-display',suffix:'km'},{id:'lapPhase',label:'Lap Rotation',default:0,slider:'lap-phase-slider',disp:'lap-phase-display',suffix:'°'},{id:'routeColorPast',label:'Route Past',default:'#f97316',input:'route-color-past',type:'color'},{id:'routeColorFuture',label:'Route Future',default:'#52525b',input:'route-color-future',type:'color'},{id:'routeThickness',label:'Route Thick.',default:10,slider:'route-thickness-slider',disp:'route-thickness-display',suffix:'px'},{id:'markerMode',label:'Marker Mode',default:0,input:'marker-mode',type:'select-int'},{id:'markerColor',label:'Marker Color',default:'#000000',input:'marker-color',type:'color'},{id:'markerSize',label:'Marker Size',default:0.5,slider:'marker-size-slider',disp:'marker-size-display',suffix:'x'},{id:'showRunner',label:'Show Runner',default:1,input:'show-runner-checkbox',type:'checkbox'},{id:'runnerSize',label:'Runner Size',default:10,slider:'runner-size-slider',disp:'runner-size-display'},{id:'runnerOutlineThickness',label:'Outline Thick',default:4,slider:'runner-outline-thickness-slider',disp:'runner-outline-thickness-display',suffix:'px'},{id:'runnerColor',label:'Runner Fill',default:'#ffffff',input:'runner-color',type:'color'},{id:'runnerOutlineColor',label:'Runner Outline',default:'#000000',input:'runner-outline-color',type:'color'},{id:'showRunnerOutline',label:'Show Outline',default:1,input:'show-runner-outline-checkbox',type:'checkbox'},{id:'hudSize',label:'HUD Size',default:1.0,slider:'stat-size-slider',disp:'stat-size-display',suffix:'x'},{id:'showMileage',label:'Show Mileage',default:0,input:'show-mileage-checkbox',type:'checkbox'},{id:'showTimer',label:'Show Timer',default:0,input:'show-timer-checkbox',type:'checkbox'},{id:'showPace',label:'Show Pace',default:0,input:'show-pace-checkbox',type:'checkbox'},{id:'showHR',label:'Show HR',default:0,input:'show-hr-checkbox',type:'checkbox'},{id:'showGlucose',label:'Show Glucose',default:0,input:'show-glucose-checkbox',type:'checkbox'},{id:'statLayout',label:'HUD Layout',default:0,input:'stat-layout-select',type:'select'},{id:'hudAlignX',label:'Align X',default:2,input:'hud-align-x',type:'select-int'},{id:'hudAlignY',label:'Align Y',default:2,input:'hud-align-y',type:'select-int'},{id:'hudBackground',label:'Background',default:1,input:'hud-bg-checkbox',type:'checkbox'},{id:'hudTextColor',label:'Text Color',default:'#ffffff',input:'hud-text-color',type:'color'}];
+const holdSlider=getEl('hold-duration-slider');if(holdSlider)holdSlider.addEventListener('input',e=>getEl('hold-duration-display').innerText=parseFloat(e.target.value).toFixed(1)+'s');
+const transSlider=getEl('transition-duration-slider');if(transSlider)transSlider.addEventListener('input',e=>getEl('transition-duration-display').innerText=parseFloat(e.target.value).toFixed(1)+'s');
+const keyframes={};animProps.forEach(p=>keyframes[p.id]=[]);
+let currentTimelineProgress=0,timelineZoom=1.0,activeKf=null,animCacheTick=0,cachedAnimValues={};
+function invalidateCache(){animCacheTick++;}
+function getAnimValue(propId){if(cachedAnimValues[propId]&&cachedAnimValues[propId].tick===animCacheTick)return cachedAnimValues[propId].v;const propDef=animProps.find(p=>p.id===propId);let kfs=keyframes[propId];let def=propDef.default;let finalVal=def;if(!kfs||kfs.length===0){const inputEl=getEl(propDef.slider||propDef.input);if(propDef.type==='color')finalVal=inputEl.value;else if(propDef.type==='checkbox')finalVal=inputEl.checked?1:0;else if(propDef.type==='select')finalVal=inputEl.value==='horizontal'?1:0;else if(propDef.type==='select-int')finalVal=parseInt(inputEl.value,10);else finalVal=parseFloat(inputEl.value)||def;}else if(currentTimelineProgress<=kfs[0].p){finalVal=kfs[0].v;}else if(currentTimelineProgress>=kfs[kfs.length-1].p){finalVal=kfs[kfs.length-1].v;}else{for(let i=0;i<kfs.length-1;i++){if(currentTimelineProgress>=kfs[i].p&&currentTimelineProgress<=kfs[i+1].p){let t=(currentTimelineProgress-kfs[i].p)/(kfs[i+1].p-kfs[i].p);if(propDef.type==='color')finalVal=lerpColor(kfs[i].v,kfs[i+1].v,t);else if(propDef.id==='enableLoop')finalVal=lerp(kfs[i].v,kfs[i+1].v,t);else if(propDef.type==='checkbox'||propDef.type==='select'||propDef.type==='select-int')finalVal=t<0.5?kfs[i].v:kfs[i+1].v;else finalVal=lerp(kfs[i].v,kfs[i+1].v,t);break;}}}cachedAnimValues[propId]={tick:animCacheTick,v:finalVal};return finalVal;}
+window.toggleKeyframe=function(propId){let kfs=keyframes[propId];const propDef=animProps.find(p=>p.id===propId);const existingIdx=kfs.findIndex(k=>Math.abs(k.p-currentTimelineProgress)<0.01);if(existingIdx>=0){kfs.splice(existingIdx,1);if(activeKf&&activeKf.propId===propId)closeKfEditor();}else{const inputEl=getEl(propDef.slider||propDef.input);let val;if(propDef.type==='color')val=inputEl.value;else if(propDef.type==='checkbox')val=inputEl.checked?1:0;else if(propDef.type==='select')val=inputEl.value==='horizontal'?1:0;else if(propDef.type==='select-int')val=parseInt(inputEl.value,10);else val=parseFloat(inputEl.value);kfs.push({p:currentTimelineProgress,v:val});kfs.sort((a,b)=>a.p-b.p);}invalidateCache();renderTimelineTracks();updateKeyframeButtons();}
+function updateKeyframeButtons(){document.querySelectorAll('.kf-btn').forEach(btn=>btn.classList.remove('active'));animProps.forEach(prop=>{let kfs=keyframes[prop.id];const hasKfHere=kfs.some(k=>Math.abs(k.p-currentTimelineProgress)<0.01);if(hasKfHere){let inputEl=getEl(prop.slider||prop.input);if(inputEl){let parentLbl=inputEl.parentElement.querySelector('label');if(parentLbl){const btn=parentLbl.querySelector('.kf-btn');if(btn)btn.classList.add('active');}}}});}
+window.resetSetting=function(propId){const propDef=animProps.find(p=>p.id===propId);const inputEl=getEl(propDef.slider||propDef.input);if(propDef.type==='checkbox')inputEl.checked=propDef.default>0.5;else if(propDef.type==='color')inputEl.value=propDef.default;else if(propDef.type==='select')inputEl.value=propDef.default>0.5?'horizontal':'vertical';else if(propDef.type==='select-int')inputEl.value=propDef.default;else inputEl.value=propDef.default;let kfs=keyframes[propId];const existingIdx=kfs.findIndex(k=>Math.abs(k.p-currentTimelineProgress)<0.01);if(existingIdx>=0)kfs.splice(existingIdx,1);inputEl.dispatchEvent(new Event('input'));invalidateCache();renderTimelineTracks();updateKeyframeButtons();if(!animationId)syncStateFromTimeline(false,true);}
+function formatDispTxt(prop,val){if(prop.isFraming)return val===0?'Center':(val>0?`Btm (${val})`:`Top (${Math.abs(val)})`);if(prop.id==='timeOfDay'){let h=Math.floor(val);let m=Math.floor((val-h)*60);return`${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;}if(['zoom','terrain','hudSize','lapRadius','speed','markerSize'].includes(prop.id))return parseFloat(val).toFixed(1)+(prop.suffix||'');if(['lapOffsetX','lapOffsetY'].includes(prop.id))return parseFloat(val).toFixed(3)+(prop.suffix||'');return Math.round(val)+(prop.suffix||'');}
+window.editInline=function(spanEl,propId){if(spanEl.querySelector('input'))return;let sliderEl=null;if(propId==='holdDuration')sliderEl=getEl('hold-duration-slider');else if(propId==='transitionDuration')sliderEl=getEl('transition-duration-slider');else{const propDef=animProps.find(p=>p.id===propId);if(!propDef||!propDef.slider)return;sliderEl=getEl(propDef.slider);}const currentVal=sliderEl.value;const input=document.createElement('input');input.type='number';input.value=currentVal;input.step=sliderEl.step||'1';input.style.width='60px';input.style.background='rgba(0,0,0,0.5)';input.style.color='var(--accent)';input.style.border='1px solid var(--accent)';input.style.borderRadius='4px';input.style.fontFamily='var(--font-mono)';input.style.fontSize='12px';input.style.padding='2px 4px';input.style.outline='none';spanEl.innerHTML='';spanEl.appendChild(input);input.focus();input.select();const finishEdit=()=>{let newVal=parseFloat(input.value);if(isNaN(newVal))newVal=currentVal;newVal=Math.max(parseFloat(sliderEl.min),Math.min(parseFloat(sliderEl.max),newVal));sliderEl.value=newVal;sliderEl.dispatchEvent(new Event('input'));};input.addEventListener('blur',finishEdit);input.addEventListener('keydown',(e)=>{if(e.key==='Enter'){input.removeEventListener('blur',finishEdit);finishEdit();}else if(e.key==='Escape'){input.removeEventListener('blur',finishEdit);sliderEl.dispatchEvent(new Event('input'));}});}
+function openKfEditor(propId,kf,el,clientX,clientY){activeKf={propId,kf};const editor=getEl('kf-editor');editor.style.display='flex';const propDef=animProps.find(p=>p.id===propId);getEl('kf-editor-title').innerText=propDef.label;getEl('kf-edit-time').value=(kf.p*100).toFixed(1);let valInput=getEl('kf-edit-value');if(propDef.type==='color')valInput.type='color';else valInput.type='text';valInput.value=kf.v;const rect=el.getBoundingClientRect();editor.style.left=Math.min(rect.left,window.innerWidth-240)+'px';editor.style.top=Math.max(20,rect.top-160)+'px';document.querySelectorAll('.keyframe').forEach(k=>k.classList.remove('editing'));el.classList.add('editing');}
+window.saveKf=function(){if(!activeKf)return;let newP=parseFloat(getEl('kf-edit-time').value)/100;let valStr=getEl('kf-edit-value').value;const propDef=animProps.find(p=>p.id===activeKf.propId);let newVal=valStr;if(propDef.type!=='color'&&propDef.type!=='select'&&propDef.type!=='select-int')newVal=parseFloat(valStr);activeKf.kf.p=Math.max(0,Math.min(1,newP));activeKf.kf.v=newVal;keyframes[activeKf.propId].sort((a,b)=>a.p-b.p);closeKfEditor();invalidateCache();renderTimelineTracks();if(!animationId)syncStateFromTimeline(false,true);};
+window.deleteKf=function(){if(!activeKf)return;let kfs=keyframes[activeKf.propId];const idx=kfs.indexOf(activeKf.kf);if(idx>-1)kfs.splice(idx,1);closeKfEditor();invalidateCache();renderTimelineTracks();updateKeyframeButtons();if(!animationId)syncStateFromTimeline(false,true);};
+function closeKfEditor(){getEl('kf-editor').style.display='none';document.querySelectorAll('.keyframe').forEach(k=>k.classList.remove('editing'));activeKf=null;}
+window.addEventListener('mousedown',(e)=>{const editor=getEl('kf-editor');if(editor.style.display!=='none'&&!editor.contains(e.target)&&!e.target.classList.contains('keyframe'))closeKfEditor();});
+window.addEventListener('keydown',(e)=>{const activeTag=document.activeElement?document.activeElement.tagName:'';const isInput=(activeTag==='INPUT'||activeTag==='TEXTAREA'||activeTag==='SELECT');if((e.key==='Backspace'||e.key==='Delete')&&activeKf&&!isInput){e.preventDefault();deleteKf();}});
+function initTimelineUI(){const labelsContainer=getEl('timeline-labels-inner');const tracksContainer=getEl('timeline-tracks');labelsContainer.innerHTML='';tracksContainer.innerHTML='';animProps.forEach((prop)=>{const lbl=document.createElement('div');lbl.className='track-label';lbl.id=`label-${prop.id}`;lbl.innerHTML=`<span>${prop.label}</span> <button class="kf-clear-btn" onclick="clearKeyframes('${prop.id}')" title="Clear Track">×</button>`;lbl.style.display='none';labelsContainer.appendChild(lbl);const trk=document.createElement('div');trk.className='track-lane';trk.id=`track-${prop.id}`;trk.style.display='none';trk.title="Double-click to insert keyframe here";trk.addEventListener('dblclick',(e)=>{const rect=trk.getBoundingClientRect();let p=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));setTimelineProgress(p);const inputEl=getEl(prop.slider||prop.input);let val;if(prop.type==='color')val=inputEl.value;else if(prop.type==='checkbox')val=inputEl.checked?1:0;else if(prop.type==='select')val=inputEl.value==='horizontal'?1:0;else if(prop.type==='select-int')val=parseInt(inputEl.value,10);else val=parseFloat(inputEl.value);keyframes[prop.id].push({p:p,v:val});keyframes[prop.id].sort((a,b)=>a.p-b.p);invalidateCache();renderTimelineTracks();updateKeyframeButtons();if(!animationId)syncStateFromTimeline(false,true);});tracksContainer.appendChild(trk);});drawTimeRuler();}
+function renderTimelineTracks(){animProps.forEach(prop=>{const trk=getEl(`track-${prop.id}`);const lbl=getEl(`label-${prop.id}`);if(!trk||!lbl)return;if(keyframes[prop.id].length>0){trk.style.display='block';lbl.style.display='flex';}else{trk.style.display='none';lbl.style.display='none';}trk.innerHTML='';keyframes[prop.id].forEach(kf=>{const el=document.createElement('div');el.className='keyframe';el.style.left=(kf.p*100)+'%';if(Math.abs(kf.p-currentTimelineProgress)<0.01)el.classList.add('active');if(activeKf&&activeKf.kf===kf)el.classList.add('editing');let lastClickTime=0;el.onpointerdown=(e)=>{e.stopPropagation();el.setPointerCapture(e.pointerId);let isDragging=false;let startX=e.clientX;const onPointerMove=(moveEvent)=>{if(Math.abs(moveEvent.clientX-startX)>2){isDragging=true;const rect=trk.getBoundingClientRect();let x=moveEvent.clientX-rect.left;let p=Math.max(0,Math.min(1,x/rect.width));kf.p=p;el.style.left=(p*100)+'%';setTimelineProgress(p);}};const onPointerUp=(upEvent)=>{el.releasePointerCapture(upEvent.pointerId);el.removeEventListener('pointermove',onPointerMove);el.removeEventListener('pointerup',onPointerUp);if(isDragging){keyframes[prop.id].sort((a,b)=>a.p-b.p);invalidateCache();renderTimelineTracks();if(!animationId)syncStateFromTimeline(false,true);}else{let now=Date.now();if(now-lastClickTime<300){openKfEditor(prop.id,kf,el,upEvent.clientX,upEvent.clientY);lastClickTime=0;}else{lastClickTime=now;}}};el.addEventListener('pointermove',onPointerMove);el.addEventListener('pointerup',onPointerUp);};trk.appendChild(el);});});}
+window.clearKeyframes=function(propId){keyframes[propId]=[];if(activeKf&&activeKf.propId===propId)closeKfEditor();invalidateCache();renderTimelineTracks();updateKeyframeButtons();};
+getEl('timeline-tracks-scroll-container').addEventListener('scroll',()=>{getEl('timeline-labels').scrollTop=getEl('timeline-tracks-scroll-container').scrollTop;});
+getEl('timeline-tracks-scroll-container').addEventListener('wheel',(e)=>{if(e.altKey){e.preventDefault();let zoomChange=e.deltaY*-0.005;timelineZoom=Math.max(1,timelineZoom+zoomChange);getEl('timeline-zoom-container').style.width=`${timelineZoom*100}%`;drawTimeRuler();}else if(e.ctrlKey){e.preventDefault();getEl('timeline-tracks-scroll-container').scrollLeft+=e.deltaY;}});
+let isDraggingTimeline=false;
+function handleTimelineMouseEvent(e){if(!isDraggingTimeline&&e.type!=='mousedown')return;if(e.type==='mousedown')isDraggingTimeline=true;const rect=getEl('time-ruler').getBoundingClientRect();let x=e.clientX-rect.left;let p=Math.max(0,Math.min(1,x/rect.width));setTimelineProgress(p);}
+getEl('time-ruler').addEventListener('mousedown',handleTimelineMouseEvent);getEl('timeline-zoom-container').addEventListener('mousedown',handleTimelineMouseEvent);window.addEventListener('mousemove',handleTimelineMouseEvent);window.addEventListener('mouseup',()=>{isDraggingTimeline=false;});
+function setTimelineProgress(p){currentTimelineProgress=p;invalidateCache();if(totalRouteDistance>0)currentDistance=p*totalRouteDistance;getEl('playhead').style.left=(p*100)+'%';getEl('timeline-status').innerText=`Progress: ${(p*100).toFixed(1)}% | Dist: ${(currentDistance*0.621371).toFixed(2)} MI`;updateKeyframeButtons();renderTimelineTracks();if(!animationId)syncStateFromTimeline(false,true);}
+function getLapTarget(progress){let lapOffsetX=getAnimValue('lapOffsetX'),lapOffsetY=getAnimValue('lapOffsetY'),lapRadius=getAnimValue('lapRadius'),lapPhase=getAnimValue('lapPhase');let baseCenter=[trackCenter[0]+lapOffsetX,trackCenter[1]+lapOffsetY];let bear=(progress*360)+lapPhase;let pos=baseCenter;if(lapRadius>0){let dest=turf.destination(baseCenter,lapRadius,bear,{units:'kilometers'});pos=dest.geometry.coordinates;}return{pos,bear,baseCenter};}
 
-    let routeCoordinates = [];
-    let originalDataPoints = []; 
-    let dexcomData = [];         
-    let animationId = null;
-    let currentDistance = 0.0;
-    
-    let currentCameraBearing = 0; 
-    let currentCameraPos = [0, 0];
-    let currentRunnerPos = [0, 0]; 
-    
-    // Playback State Machine Variables
-    let playPhase = 'none';
-    let playFrameIdx = 0;
-    let outroStartCenter = [0, 0];
-    let outroStartBearing = 0;
-
-    let cameraFramingOffset = 0;
-    let cameraRotationOffset = 0;
-
-    let rawRouteLine = null;
-    let totalRouteDistance = 0;
-    let speedMultiplier = 1.0;
-    let cameraZoom = 15.8;
-    let cameraPitch = 60;
-    let cameraSmoothness = 45; 
-    let useCustomImage = false; 
-
-    // Track Loop Detection State
-    let isTrackRun = false;
-    let trackCenter = [0, 0];
-
-    // Resolution Config Map
-    const resolutionMap = {
-        "720": { w: 1280, h: 720, br: 10_000_000 },
-        "1080": { w: 1920, h: 1080, br: 25_000_000 },
-        "1440": { w: 2560, h: 1440, br: 40_000_000 },
-        "2160": { w: 3840, h: 2160, br: 80_000_000 },
-        "4320": { w: 7680, h: 4320, br: 150_000_000 }
-    };
-
-    // HELPERS FOR INTERPOLATION
-    function lerp(start, end, t) { return start + (end - start) * t; }
-    function lerpLngLat(start, end, t) { return [lerp(start[0], end[0], t), lerp(start[1], end[1], t)]; }
-    function lerpBearing(start, end, t) {
-        let diff = end - start;
-        while (diff > 180) diff -= 360;
-        while (diff < -180) diff += 360;
-        return start + diff * t;
-    }
-    function easeInOut(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
-
-    function getOverviewCamera() {
-        if (routeCoordinates.length === 0) return { center: [0,0], zoom: 11, pitch: 0, bearing: 0 };
-        const bounds = routeCoordinates.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(routeCoordinates[0], routeCoordinates[0]));
-        const camera = map.cameraForBounds(bounds, { padding: 50 });
-        return { center: [camera.center.lng, camera.center.lat], zoom: camera.zoom, pitch: 0, bearing: 0 };
-    }
-
-    function formatTime(ms) {
-        if (isNaN(ms) || ms < 0) return "00:00";
-        let totalSeconds = Math.floor(ms / 1000);
-        let hours = Math.floor(totalSeconds / 3600);
-        let minutes = Math.floor((totalSeconds % 3600) / 60);
-        let seconds = totalSeconds % 60;
-        if (hours > 0) return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    }
-
-    map.on('load', () => {
-        map.addSource('start-point', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': [0, 0] } } });
-        map.addLayer({ 'id': 'start-circle-bg', 'type': 'circle', 'source': 'start-point', 'paint': { 'circle-radius': 12, 'circle-color': '#ffffff', 'circle-opacity': 0 } });
-        map.addLayer({ 'id': 'start-circle', 'type': 'circle', 'source': 'start-point', 'paint': { 'circle-radius': 8, 'circle-color': '#00a859', 'circle-opacity': 0 } });
-
-        map.addSource('route-past', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } } });
-        map.addLayer({ 'id': 'route-line-past-glow', 'type': 'line', 'source': 'route-past', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#fc4c02', 'line-width': 20, 'line-opacity': 0.4, 'line-blur': 8 } });
-        map.addLayer({ 'id': 'route-line-past-casing', 'type': 'line', 'source': 'route-past', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#000000', 'line-width': 14, 'line-opacity': 0.3 } });
-        map.addLayer({ 'id': 'route-line-past', 'type': 'line', 'source': 'route-past', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#fc4c02', 'line-width': 10, 'line-opacity': 1.0 } });
-
-        map.addSource('route-future', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } } });
-        map.addLayer({ 'id': 'route-line-future-glow', 'type': 'line', 'source': 'route-future', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#6d6d78', 'line-width': 20, 'line-opacity': 0, 'line-blur': 8 } });
-        map.addLayer({ 'id': 'route-line-future-casing', 'type': 'line', 'source': 'route-future', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#000000', 'line-width': 14, 'line-opacity': 0 } });
-        map.addLayer({ 'id': 'route-line-future', 'type': 'line', 'source': 'route-future', 'layout': { 'line-join': 'round', 'line-cap': 'round' }, 'paint': { 'line-color': '#6d6d78', 'line-width': 10, 'line-opacity': 0 } }); 
-
-        map.addSource('finish-point', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': [0, 0] } } });
-        map.addLayer({ 'id': 'finish-circle-bg', 'type': 'circle', 'source': 'finish-point', 'paint': { 'circle-radius': 12, 'circle-color': '#ffffff', 'circle-opacity': 0 } });
-        map.addLayer({ 'id': 'finish-circle', 'type': 'circle', 'source': 'finish-point', 'paint': { 'circle-radius': 8, 'circle-color': '#fc4c02', 'circle-opacity': 0 } });
-
-        map.addSource('runner', { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': [0, 0] } } });
-        map.addLayer({ 'id': 'runner-point', 'type': 'circle', 'source': 'runner', 'paint': { 'circle-radius': 10, 'circle-color': '#ffffff', 'circle-stroke-width': 4, 'circle-stroke-color': '#000000', 'circle-opacity': 0, 'circle-stroke-opacity': 0 } });
-        map.addLayer({ 'id': 'runner-point-symbol', 'type': 'symbol', 'source': 'runner', 'layout': { 'icon-image': 'custom-runner', 'icon-size': 1.0, 'icon-allow-overlap': true, 'icon-rotation-alignment': 'viewport' }, 'paint': { 'icon-opacity': 0 } });
-    });
-
-    function showStartFinish() {
-        if (routeCoordinates.length > 0) {
-            map.setPaintProperty('start-circle-bg', 'circle-opacity', 1);
-            map.setPaintProperty('start-circle', 'circle-opacity', 1);
-            map.setPaintProperty('finish-circle-bg', 'circle-opacity', 1);
-            map.setPaintProperty('finish-circle', 'circle-opacity', 1);
-        }
-    }
-
-    function showRunner() {
-        if (useCustomImage) {
-            map.setPaintProperty('runner-point', 'circle-opacity', 0);
-            map.setPaintProperty('runner-point', 'circle-stroke-opacity', 0);
-            map.setPaintProperty('runner-point-symbol', 'icon-opacity', 1);
-        } else {
-            map.setPaintProperty('runner-point', 'circle-opacity', 1);
-            map.setPaintProperty('runner-point', 'circle-stroke-opacity', 1);
-            map.setPaintProperty('runner-point-symbol', 'icon-opacity', 0);
-        }
-    }
-
-    function hideRunner() {
-        map.setPaintProperty('runner-point', 'circle-opacity', 0);
-        map.setPaintProperty('runner-point', 'circle-stroke-opacity', 0);
-        if (map.getLayer('runner-point-symbol')) map.setPaintProperty('runner-point-symbol', 'icon-opacity', 0);
-    }
-
-    function updateRouteSlicingByDist(runDist) {
-        if (!rawRouteLine) return;
-        const mode = document.getElementById('route-mode').value;
-        if (mode === 'solid') {
-            map.getSource('route-past').setData(rawRouteLine);
-            map.getSource('route-future').setData({ 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } });
-        } else if (mode === 'progress') {
-            if (runDist <= 0) {
-                map.getSource('route-past').setData({ 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } });
-                map.getSource('route-future').setData(rawRouteLine);
-            } else if (runDist >= totalRouteDistance) {
-                map.getSource('route-past').setData(rawRouteLine);
-                map.getSource('route-future').setData({ 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } });
-            } else {
-                map.getSource('route-past').setData(turf.lineSliceAlong(rawRouteLine, 0, runDist));
-                map.getSource('route-future').setData(turf.lineSliceAlong(rawRouteLine, runDist, totalRouteDistance));
-            }
-        }
-    }
-
-    // UI Listeners
-    document.getElementById('framing-slider').addEventListener('input', (e) => {
-        cameraFramingOffset = parseInt(e.target.value, 10);
-        let label = cameraFramingOffset === 0 ? 'Center' : (cameraFramingOffset > 0 ? `Bottom (${cameraFramingOffset})` : `Top (${Math.abs(cameraFramingOffset)})`);
-        document.getElementById('framing-display').innerText = label;
-    });
-
-    document.getElementById('rotation-slider').addEventListener('input', (e) => {
-        cameraRotationOffset = parseInt(e.target.value, 10);
-        document.getElementById('rotation-display').innerText = cameraRotationOffset + '°';
-    });
-    
-    document.getElementById('hold-duration-slider').addEventListener('input', (e) => { document.getElementById('hold-duration-display').innerText = parseFloat(e.target.value).toFixed(1) + 's'; });
-    document.getElementById('transition-duration-slider').addEventListener('input', (e) => { document.getElementById('transition-duration-display').innerText = parseFloat(e.target.value).toFixed(1) + 's'; });
-
-    document.getElementById('route-mode').addEventListener('change', (e) => {
-        const mode = e.target.value;
-        const opGlow = 0.4, opCase = 0.3, opCore = 1.0;
-        if (mode === 'hidden') {
-            ['past', 'future'].forEach(t => {
-                map.setPaintProperty(`route-line-${t}-glow`, 'line-opacity', 0);
-                map.setPaintProperty(`route-line-${t}-casing`, 'line-opacity', 0);
-                map.setPaintProperty(`route-line-${t}`, 'line-opacity', 0);
-            });
-        } else {
-            ['past', 'future'].forEach(t => {
-                map.setPaintProperty(`route-line-${t}-glow`, 'line-opacity', mode === 'solid' && t === 'future' ? 0 : opGlow);
-                map.setPaintProperty(`route-line-${t}-casing`, 'line-opacity', mode === 'solid' && t === 'future' ? 0 : opCase);
-                map.setPaintProperty(`route-line-${t}`, 'line-opacity', mode === 'solid' && t === 'future' ? 0 : opCore);
-            });
-            updateRouteSlicingByDist(currentDistance);
-        }
-    });
-
-    document.getElementById('route-color-past').addEventListener('input', (e) => {
-        if (map.getLayer('route-line-past-glow')) map.setPaintProperty('route-line-past-glow', 'line-color', e.target.value);
-        if (map.getLayer('route-line-past')) map.setPaintProperty('route-line-past', 'line-color', e.target.value);
-    });
-    document.getElementById('route-color-future').addEventListener('input', (e) => {
-        if (map.getLayer('route-line-future-glow')) map.setPaintProperty('route-line-future-glow', 'line-color', e.target.value);
-        if (map.getLayer('route-line-future')) map.setPaintProperty('route-line-future', 'line-color', e.target.value);
-    });
-
-    ['show-mileage-checkbox', 'show-timer-checkbox', 'show-pace-checkbox', 'show-hr-checkbox', 'show-glucose-checkbox', 'stat-layout-select'].forEach(id => {
-        document.getElementById(id).addEventListener('change', () => renderStatsOverlay(currentDistance));
-    });
-    
-    document.getElementById('stat-size-slider').addEventListener('input', (e) => {
-        document.getElementById('stat-size-display').innerText = parseFloat(e.target.value).toFixed(1) + 'x';
-        renderStatsOverlay(currentDistance);
-    });
-
-    document.getElementById('speed-slider').addEventListener('input', (e) => { speedMultiplier = parseFloat(e.target.value); document.getElementById('speed-display').innerText = speedMultiplier.toFixed(1) + 'x'; });
-    document.getElementById('zoom-slider').addEventListener('input', (e) => { cameraZoom = parseFloat(e.target.value); document.getElementById('zoom-display').innerText = cameraZoom.toFixed(1); });
-    document.getElementById('pitch-slider').addEventListener('input', (e) => { cameraPitch = parseInt(e.target.value, 10); document.getElementById('pitch-display').innerText = cameraPitch + '°'; });
-    document.getElementById('smoothness-slider').addEventListener('input', (e) => { cameraSmoothness = parseInt(e.target.value, 10); document.getElementById('smoothness-display').innerText = cameraSmoothness + '%'; });
-    document.getElementById('terrain-slider').addEventListener('input', (e) => { const val = parseFloat(e.target.value); document.getElementById('terrain-display').innerText = val.toFixed(1) + 'x'; map.setTerrain({ source: 'terrain-source', exaggeration: val }); });
-    
-    document.getElementById('runner-size-slider').addEventListener('input', (e) => { const val = parseInt(e.target.value, 10); document.getElementById('runner-size-display').innerText = val; if (map.getLayer('runner-point')) map.setPaintProperty('runner-point', 'circle-radius', val); if (map.getLayer('runner-point-symbol')) map.setLayoutProperty('runner-point-symbol', 'icon-size', val / 10); });
-    
-    document.getElementById('route-thickness-slider').addEventListener('input', (e) => { 
-        const val = parseInt(e.target.value, 10); 
-        document.getElementById('route-thickness-display').innerText = val + 'px'; 
-        ['past', 'future'].forEach(t => {
-            if (map.getLayer(`route-line-${t}-glow`)) map.setPaintProperty(`route-line-${t}-glow`, 'line-width', val + 10);
-            if (map.getLayer(`route-line-${t}-casing`)) map.setPaintProperty(`route-line-${t}-casing`, 'line-width', val + 4);
-            if (map.getLayer(`route-line-${t}`)) map.setPaintProperty(`route-line-${t}`, 'line-width', val);
-        });
-    });
-
-    document.getElementById('runner-color').addEventListener('input', (e) => { if (map.getLayer('runner-point')) map.setPaintProperty('runner-point', 'circle-color', e.target.value); });
-    document.getElementById('runner-outline-color').addEventListener('input', (e) => { if (map.getLayer('runner-point')) map.setPaintProperty('runner-point', 'circle-stroke-color', e.target.value); });
-
-    document.getElementById('runner-image-upload').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function(event) {
-            const img = new Image();
-            img.onload = function() {
-                const size = 128; const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size; const ctx = canvas.getContext('2d');
-                ctx.beginPath(); ctx.arc(size/2, size/2, size/2, 0, Math.PI * 2); ctx.closePath(); ctx.save(); ctx.clip();
-                const scale = Math.max(size / img.width, size / img.height);
-                ctx.drawImage(img, (size/2)-(img.width/2)*scale, (size/2)-(img.height/2)*scale, img.width*scale, img.height*scale);
-                ctx.restore(); 
-                if (map.hasImage('custom-runner')) map.removeImage('custom-runner');
-                map.addImage('custom-runner', ctx.getImageData(0, 0, size, size)); useCustomImage = true;
-                document.getElementById('status').innerText = 'Avatar created.';
-            };
-            img.src = event.target.result;
-        };
-        reader.readAsDataURL(file);
-    });
-
-    // --- GPX PARSER & TRACK DETECTION ---
-    document.getElementById('gpx-upload').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        document.getElementById('export-filename').value = file.name.replace(/\.[^/.]+$/, "");
-        const reader = new FileReader();
-        reader.onload = (event) => parseGPX(event.target.result);
-        reader.readAsText(file);
-    });
-
-    function parseGPX(xmlText) {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-        const trackPoints = xmlDoc.getElementsByTagName('trkpt');
-        
-        routeCoordinates = [];
-        originalDataPoints = [];
-        let cumDist = 0;
-
-        for (let i = 0; i < trackPoints.length; i++) {
-            const lon = parseFloat(trackPoints[i].getAttribute('lon'));
-            const lat = parseFloat(trackPoints[i].getAttribute('lat'));
-            
-            let timeMs = null;
-            const timeTags = trackPoints[i].getElementsByTagName('time');
-            if (timeTags.length > 0) timeMs = Date.parse(timeTags[0].textContent);
-
-            let hr = null;
-            const allTags = trackPoints[i].getElementsByTagName('*');
-            for(let j=0; j<allTags.length; j++) {
-                if(allTags[j].localName === 'hr') { hr = parseInt(allTags[j].textContent, 10); break; }
-            }
-
-            routeCoordinates.push([lon, lat]);
-
-            if (i > 0) cumDist += turf.distance(turf.point(routeCoordinates[i-1]), turf.point(routeCoordinates[i]), {units: 'kilometers'});
-            originalDataPoints.push({ dist: cumDist, time: timeMs, hr: hr });
-        }
-
-        if (routeCoordinates.length > 1) {
-            rawRouteLine = turf.lineString(routeCoordinates);
-            totalRouteDistance = turf.length(rawRouteLine, {units: 'kilometers'});
-            
-            // MATH-BASED CENTER OF MASS (Perfectly finds the exact center of track/loops ignoring walk warmups)
-            let sumLng = 0, sumLat = 0;
-            for(let i=0; i<routeCoordinates.length; i++) {
-                sumLng += routeCoordinates[i][0];
-                sumLat += routeCoordinates[i][1];
-            }
-            trackCenter = [sumLng / routeCoordinates.length, sumLat / routeCoordinates.length];
-
-            // MATH-BASED LOOP DETECTION (Uses ratio of total run distance to area width to guarantee it detects loops correctly)
-            const bounds = routeCoordinates.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(routeCoordinates[0], routeCoordinates[0]));
-            const diagDist = turf.distance(turf.point([bounds.getWest(), bounds.getSouth()]), turf.point([bounds.getEast(), bounds.getNorth()]), {units: 'kilometers'});
-            
-            if (diagDist > 0 && (totalRouteDistance / diagDist) > 3.0) {
-                isTrackRun = true;
-                console.log("Lap Mode Auto-Engaged! Ratio: ", (totalRouteDistance / diagDist));
-            } else {
-                isTrackRun = false;
-            }
-
-            map.getSource('start-point').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[0] } });
-            map.getSource('finish-point').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[routeCoordinates.length - 1] } });
-            showStartFinish();
-
-            updateRouteSlicingByDist(0);
-            
-            const overview = getOverviewCamera();
-            map.jumpTo({ center: overview.center, zoom: overview.zoom, pitch: overview.pitch, bearing: overview.bearing, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
-            
-            document.getElementById('play-btn').disabled = false;
-            document.getElementById('export-btn').disabled = false;
-            document.getElementById('status').innerText = 'GPX Processed Successfully.';
-        }
-    }
-
-    // GENERAL CGM PARSER
-    document.getElementById('dexcom-upload').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const text = event.target.result;
-            const lines = text.split('\n');
-            dexcomData = [];
-            let timeIdx = -1, glucIdx = -1;
-            
-            for(let i=0; i<lines.length; i++) {
-                if(!lines[i].trim()) continue;
-                const cols = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || lines[i].split(',');
-                const cleanCols = cols.map(c => c.replace(/^"|"$/g, '').trim());
-
-                if (timeIdx === -1 && glucIdx === -1) {
-                    const tI = cleanCols.findIndex(c => c.toLowerCase().match(/time|date/));
-                    const gI = cleanCols.findIndex(c => c.toLowerCase().match(/glucose|mg\/dl|value/) && !c.toLowerCase().includes('type'));
-                    if (tI >= 0 && gI >= 0) { timeIdx = tI; glucIdx = gI; }
-                    continue;
-                }
-
-                if (timeIdx >= 0 && glucIdx >= 0 && cleanCols.length > Math.max(timeIdx, glucIdx)) {
-                    let tsStr = cleanCols[timeIdx].replace(' ', 'T'); 
-                    const ts = Date.parse(tsStr);
-                    const val = parseInt(cleanCols[glucIdx], 10);
-                    if (!isNaN(ts) && !isNaN(val)) dexcomData.push({ time: ts, glucose: val });
-                }
-            }
-            dexcomData.sort((a,b) => a.time - b.time);
-            document.getElementById('status').innerText = `Loaded ${dexcomData.length} CGM Readings.`;
-        };
-        reader.readAsText(file);
-    });
-
-    // --- PHYSICS ENGINE ---
-    function calculateCameraPhysics(dist, totalDist, currentB) {
-        const runnerPoint = turf.along(rawRouteLine, dist, {units: 'kilometers'});
-        const rPos = runnerPoint.geometry.coordinates;
-
-        const lookAhead = 0.05 + (cameraSmoothness / 100) * 0.25; 
-        const targetPoint = turf.along(rawRouteLine, Math.min(dist + lookAhead, totalDist), {units: 'kilometers'});
-
-        let targetB = turf.bearing(runnerPoint, targetPoint);
-        let bDiff = targetB - currentB;
-        
-        while (bDiff > 180) bDiff -= 360;
-        while (bDiff < -180) bDiff += 360;
-
-        let bWeight = Math.pow((100 - cameraSmoothness) / 100, 3) * 0.15 + 0.002;
-        let newBearing = currentB + (bDiff * bWeight);
-
-        return { rPos, newBearing, targetB };
-    }
-
-    // Telemetry Panel Overhead Logic
-    function renderStatsOverlay(dist) {
-        const overlay = document.getElementById('stats-overlay');
-        const showMileage = document.getElementById('show-mileage-checkbox').checked;
-        const showTimer = document.getElementById('show-timer-checkbox').checked;
-        const showPace = document.getElementById('show-pace-checkbox').checked;
-        const showHR = document.getElementById('show-hr-checkbox').checked;
-        const showGlucose = document.getElementById('show-glucose-checkbox').checked;
-        
-        const scale = document.getElementById('stat-size-slider').value;
-        const layout = document.getElementById('stat-layout-select').value;
-        
-        overlay.style.transform = `scale(${scale})`;
-        overlay.style.flexDirection = layout === 'horizontal' ? 'row-reverse' : 'column-reverse';
-
-        let html = [];
-        const pt = originalDataPoints.find(p => p.dist >= dist) || originalDataPoints[originalDataPoints.length-1];
-
-        if (showMileage) {
-            html.push(`
-                <div class="stat-box" style="border-left-color: #ffffff;">
-                    <div class="stat-label">DISTANCE</div>
-                    <div class="stat-value" style="color: #ffffff;">${(dist * 0.621371).toFixed(2)} MI</div>
-                </div>
-            `);
-        }
-        
-        if (showTimer) {
-            let timerTxt = "00:00";
-            if (pt && pt.time && originalDataPoints.length > 0 && originalDataPoints[0].time) {
-                timerTxt = formatTime(pt.time - originalDataPoints[0].time);
-            }
-            html.push(`
-                <div class="stat-box" style="border-left-color: #00aeff;">
-                    <div class="stat-label">ELAPSED</div>
-                    <div class="stat-value" style="color: #00aeff;">${timerTxt}</div>
-                </div>
-            `);
-        }
-
-        if (showPace) {
-            let paceTxt = "--:-- /MI";
-            if (pt && pt.time && originalDataPoints.length > 0 && originalDataPoints[0].time && dist > 0) {
-                let elapsedMins = (pt.time - originalDataPoints[0].time) / 60000;
-                let distMi = dist * 0.621371;
-                if (distMi > 0.02) { 
-                    let paceMins = elapsedMins / distMi;
-                    if (paceMins < 99) {
-                        let pM = Math.floor(paceMins);
-                        let pS = Math.floor((paceMins - pM) * 60);
-                        paceTxt = `${pM}:${pS.toString().padStart(2, '0')} /MI`;
-                    }
-                }
-            }
-            html.push(`
-                <div class="stat-box" style="border-left-color: #ffb800;">
-                    <div class="stat-label">PACE</div>
-                    <div class="stat-value" style="color: #ffb800;">${paceTxt}</div>
-                </div>
-            `);
-        }
-
-        if (showHR) {
-            let hrTxt = "-- BPM";
-            if (pt && pt.hr) hrTxt = pt.hr + " BPM";
-            html.push(`
-                <div class="stat-box" style="border-left-color: #fc4c02;">
-                    <div class="stat-label">HEART RATE</div>
-                    <div class="stat-value" style="color: #fc4c02;">${hrTxt}</div>
-                </div>
-            `);
-        }
-
-        if (showGlucose) {
-            let glucTxt = "-- mg/dL";
-            if (pt && pt.time && dexcomData.length > 0) {
-                let closest = dexcomData[0];
-                let minDiff = Math.abs(pt.time - closest.time);
-                for(let i=1; i<dexcomData.length; i++) {
-                    let diff = Math.abs(pt.time - dexcomData[i].time);
-                    if (diff < minDiff) { minDiff = diff; closest = dexcomData[i]; }
-                }
-                if (minDiff < 15 * 60 * 1000) glucTxt = closest.glucose + " mg/dL";
-            }
-            html.push(`
-                <div class="stat-box" style="border-left-color: #00a859;">
-                    <div class="stat-label">GLUCOSE</div>
-                    <div class="stat-value" style="color: #00a859;">${glucTxt}</div>
-                </div>
-            `);
-        }
-
-        if (html.length > 0) {
-            overlay.style.display = 'flex';
-            overlay.innerHTML = html.join('');
-        } else {
-            overlay.style.display = 'none';
-        }
-    }
-
-    function drawSickHUD(ctx, rightX, y, label, value, color, scaleFactor) {
-        ctx.save();
-        ctx.textBaseline = "middle";
-        
-        const fontSizeVal = 32 * scaleFactor;
-        const fontSizeLab = 14 * scaleFactor;
-        const gap = 15 * scaleFactor;
-        const padX = 20 * scaleFactor;
-        const h = 60 * scaleFactor;
-        const borderRadius = 8 * scaleFactor;
-        const borderWidth = 6 * scaleFactor;
-
-        ctx.font = `bold ${fontSizeVal}px ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace`;
-        const valW = ctx.measureText(value).width;
-        ctx.font = `bold ${fontSizeLab}px ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace`;
-        const labW = ctx.measureText(label).width;
-        
-        const w = labW + gap + valW + padX * 2;
-        const boxX = rightX - w;
-        
-        ctx.fillStyle = "rgba(15, 15, 20, 0.85)";
-        ctx.shadowColor = "rgba(0,0,0,0.5)";
-        ctx.shadowBlur = 12 * scaleFactor;
-        ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(boxX, y, w, h, borderRadius);
-        else ctx.rect(boxX, y, w, h);
-        ctx.fill();
-        
-        ctx.shadowBlur = 0;
+let lastPinColor = '';
+let lastNumMarkers = 0;
+function updateMarkerPinImages(color) {
+    if (!totalRouteDistance) return;
+    const numMarkers = Math.floor(totalRouteDistance * 0.621371);
+    if (color === lastPinColor && numMarkers === lastNumMarkers) return;
+    lastPinColor = color;
+    lastNumMarkers = numMarkers;
+    const w = 128, h = 160;
+    for (let i = 1; i <= numMarkers; i++) {
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
         ctx.fillStyle = color;
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetY = 4;
         ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(boxX, y, borderWidth, h, [borderRadius, 0, 0, borderRadius]);
-        else ctx.rect(boxX, y, borderWidth, h);
+        const cx = 64, cy = 64, r = 52;
+        ctx.arc(cx, cy, r, Math.PI, 0, false);
+        ctx.bezierCurveTo(cx + r, cy + r, cx, 150, cx, 150);
+        ctx.bezierCurveTo(cx, 150, cx - r, cy + r, cx - r, cy);
         ctx.fill();
-        
-        ctx.fillStyle = "rgba(255,255,255,0.5)";
-        ctx.textAlign = "right";
-        ctx.fillText(label, boxX + padX + labW, y + h/2);
-        
+        ctx.shadowColor = 'transparent';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 6;
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.75, 0, Math.PI * 2);
+        ctx.fill();
         ctx.fillStyle = color;
-        ctx.textAlign = "left";
-        ctx.font = `bold ${fontSizeVal}px ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace`;
-        ctx.fillText(value, boxX + padX + labW + gap, y + h/2);
-        
-        ctx.restore();
-        return { width: w, height: h };
-    }
-
-    // --- PLAYBACK ENGINE WITH CINEMATIC ZOOM PHASES ---
-    document.getElementById('play-btn').addEventListener('click', () => {
-        if (animationId) cancelAnimationFrame(animationId);
-        document.getElementById('play-btn').disabled = true;
-        document.getElementById('pause-btn').disabled = false;
-        document.getElementById('stop-btn').disabled = false;
-        document.getElementById('export-btn').disabled = true;
-        showRunner();
-
-        const previewFPS = 60; 
-        const enableIntro = document.getElementById('show-intro-checkbox').checked;
-        const enableOutro = document.getElementById('show-outro-checkbox').checked;
-        const holdFrames = parseFloat(document.getElementById('hold-duration-slider').value) * previewFPS;
-        const transFrames = parseFloat(document.getElementById('transition-duration-slider').value) * previewFPS;
-
-        if (currentDistance === 0.0 && playFrameIdx === 0 && playPhase === 'none') {
-            currentCameraBearing = isTrackRun ? 0 : calculateCameraPhysics(0, totalRouteDistance, 0).targetB;
-            currentCameraPos = isTrackRun ? [...trackCenter] : [...routeCoordinates[0]];
-            currentRunnerPos = [...routeCoordinates[0]];
-            playPhase = 'intro_hold';
-        }
-
-        const step = (0.24 * speedMultiplier) / previewFPS;
-
-        function frame() {
-            let padTop = cameraFramingOffset > 0 ? cameraFramingOffset : 0;
-            let padBottom = cameraFramingOffset < 0 ? Math.abs(cameraFramingOffset) : 0;
-
-            const overview = getOverviewCamera();
-            const physStart = calculateCameraPhysics(0, totalRouteDistance, currentCameraBearing);
-            const startBearing = isTrackRun ? 0 : physStart.targetB;
-            const startPos = isTrackRun ? trackCenter : routeCoordinates[0];
-
-            if (playPhase === 'intro_hold') {
-                if (!enableIntro || holdFrames === 0) {
-                    playPhase = enableIntro ? 'intro_trans' : 'run';
-                    playFrameIdx = 0;
-                    animationId = requestAnimationFrame(frame);
-                    return;
-                }
-                map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[0] } });
-                updateRouteSlicingByDist(0);
-                map.jumpTo({ center: overview.center, zoom: overview.zoom, pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
-                renderStatsOverlay(0);
-                
-                playFrameIdx++;
-                if (playFrameIdx >= holdFrames) { playPhase = 'intro_trans'; playFrameIdx = 0; }
-            }
-            else if (playPhase === 'intro_trans') {
-                if (transFrames === 0) {
-                    playPhase = 'run';
-                    playFrameIdx = 0;
-                    animationId = requestAnimationFrame(frame);
-                    return;
-                }
-                const t = Math.min(playFrameIdx / transFrames, 1.0);
-                const easeT = easeInOut(t);
-                
-                const cCenter = lerpLngLat(overview.center, startPos, easeT);
-                const cZoom = lerp(overview.zoom, cameraZoom, easeT);
-                const cPitch = lerp(0, cameraPitch, easeT);
-                const cBearing = lerpBearing(0, startBearing, easeT);
-                
-                map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[0] } });
-                updateRouteSlicingByDist(0);
-                map.jumpTo({ center: cCenter, zoom: cZoom, pitch: cPitch, bearing: cBearing, padding: { top: padTop * easeT, bottom: padBottom * easeT, left: 0, right: 0 } });
-                renderStatsOverlay(0);
-                
-                playFrameIdx++;
-                if (playFrameIdx > transFrames) { 
-                    playPhase = 'run'; 
-                    currentDistance = 0.0;
-                    currentCameraBearing = startBearing;
-                    currentCameraPos = [...startPos];
-                    currentRunnerPos = [...routeCoordinates[0]];
-                }
-            }
-            else if (playPhase === 'run') {
-                if (currentDistance >= totalRouteDistance) {
-                    playPhase = enableOutro ? 'outro_trans' : 'done';
-                    playFrameIdx = 0;
-                    outroStartCenter = [...currentCameraPos];
-                    outroStartBearing = currentCameraBearing;
-                    animationId = requestAnimationFrame(frame);
-                    return;
-                }
-                
-                const phys = calculateCameraPhysics(currentDistance, totalRouteDistance, currentCameraBearing);
-                
-                if (isTrackRun) {
-                    let pWeight = Math.pow((100 - cameraSmoothness) / 100, 2) * 0.4 + 0.1;
-                    currentCameraPos[0] += (trackCenter[0] - currentCameraPos[0]) * pWeight;
-                    currentCameraPos[1] += (trackCenter[1] - currentCameraPos[1]) * pWeight;
-                    currentCameraBearing = (currentDistance / totalRouteDistance) * 360;
-                } else {
-                    let pWeight = Math.pow((100 - cameraSmoothness) / 100, 2) * 0.4 + 0.1;
-                    currentCameraPos[0] += (phys.rPos[0] - currentCameraPos[0]) * pWeight;
-                    currentCameraPos[1] += (phys.rPos[1] - currentCameraPos[1]) * pWeight;
-                    currentCameraBearing = phys.newBearing;
-                }
-                
-                currentRunnerPos = [...phys.rPos];
-
-                map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': currentRunnerPos } });
-                updateRouteSlicingByDist(currentDistance);
-                
-                map.jumpTo({ 
-                    center: currentCameraPos, 
-                    zoom: cameraZoom, 
-                    pitch: cameraPitch, 
-                    bearing: currentCameraBearing + cameraRotationOffset,
-                    padding: { top: padTop, bottom: padBottom, left: 0, right: 0 }
-                });
-                
-                renderStatsOverlay(currentDistance);
-                currentDistance += step;
-            }
-            else if (playPhase === 'outro_trans') {
-                if (transFrames === 0) {
-                    playPhase = 'outro_hold';
-                    playFrameIdx = 0;
-                    animationId = requestAnimationFrame(frame);
-                    return;
-                }
-                const t = Math.min(playFrameIdx / transFrames, 1.0);
-                const easeT = easeInOut(t);
-                
-                const cCenter = lerpLngLat(outroStartCenter, overview.center, easeT);
-                const cZoom = lerp(cameraZoom, overview.zoom, easeT);
-                const cPitch = lerp(cameraPitch, 0, easeT);
-                const cBearing = lerpBearing(outroStartBearing + cameraRotationOffset, 0, easeT);
-                
-                map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': currentRunnerPos } });
-                updateRouteSlicingByDist(totalRouteDistance);
-                
-                map.jumpTo({ center: cCenter, zoom: cZoom, pitch: cPitch, bearing: cBearing, padding: { top: padTop * (1-easeT), bottom: padBottom * (1-easeT), left: 0, right: 0 } });
-                renderStatsOverlay(totalRouteDistance);
-                
-                playFrameIdx++;
-                if (playFrameIdx > transFrames) { playPhase = 'outro_hold'; playFrameIdx = 0; }
-            }
-            else if (playPhase === 'outro_hold') {
-                if (holdFrames === 0 || playFrameIdx >= holdFrames) {
-                    playPhase = 'done';
-                    animationId = requestAnimationFrame(frame);
-                    return;
-                }
-                map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': currentRunnerPos } });
-                updateRouteSlicingByDist(totalRouteDistance);
-                map.jumpTo({ center: overview.center, zoom: overview.zoom, pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
-                renderStatsOverlay(totalRouteDistance);
-                playFrameIdx++;
-            }
-            else if (playPhase === 'done') {
-                document.getElementById('play-btn').disabled = false;
-                hideRunner();
-                currentDistance = 0.0;
-                playFrameIdx = 0;
-                playPhase = 'none';
-                animationId = null;
-                return;
-            }
-
-            if (playPhase !== 'done') {
-                animationId = requestAnimationFrame(frame);
-            }
-        }
-        frame();
-    });
-
-    document.getElementById('pause-btn').addEventListener('click', () => {
-        cancelAnimationFrame(animationId);
-        document.getElementById('play-btn').disabled = false;
-        document.getElementById('pause-btn').disabled = true;
-        document.getElementById('export-btn').disabled = false;
-        document.getElementById('status').innerText = 'Playback Paused.';
-    });
-
-    document.getElementById('stop-btn').addEventListener('click', () => {
-        cancelAnimationFrame(animationId);
-        currentDistance = 0.0; 
-        playFrameIdx = 0;
-        playPhase = 'none';
-        hideRunner();
-        document.getElementById('play-btn').disabled = false;
-        document.getElementById('pause-btn').disabled = true;
-        document.getElementById('stop-btn').disabled = true;
-        document.getElementById('export-btn').disabled = false;
-        renderStatsOverlay(0.0);
-        
-        const overview = getOverviewCamera();
-        map.jumpTo({ center: overview.center, zoom: overview.zoom, pitch: overview.pitch, bearing: overview.bearing, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
-        document.getElementById('status').innerText = 'Playback Stopped.';
-    });
-
-    // --- MASTER VIDEO EXPORT WITH EXACT 1:1 RESOLUTION SCALING ---
-    async function triggerExport() {
-        cancelAnimationFrame(animationId);
-        document.getElementById('play-btn').disabled = true;
-        document.getElementById('export-btn').disabled = true;
-        
-        const resKey = document.getElementById('export-res').value;
-        const targetW = resolutionMap[resKey].w;
-        const targetH = resolutionMap[resKey].h;
-        const targetBR = resolutionMap[resKey].br;
-
-        const fps = parseInt(document.getElementById('export-fps').value, 10);
-        const showMileage = document.getElementById('show-mileage-checkbox').checked;
-        const showTimer = document.getElementById('show-timer-checkbox').checked;
-        const showPace = document.getElementById('show-pace-checkbox').checked;
-        const showHR = document.getElementById('show-hr-checkbox').checked;
-        const showGlucose = document.getElementById('show-glucose-checkbox').checked;
-        const scaleFactor = parseFloat(document.getElementById('stat-size-slider').value);
-        const layout = document.getElementById('stat-layout-select').value;
-        
-        const enableIntro = document.getElementById('show-intro-checkbox').checked;
-        const enableOutro = document.getElementById('show-outro-checkbox').checked;
-        const holdFrames = parseFloat(document.getElementById('hold-duration-slider').value) * fps;
-        const transFrames = parseFloat(document.getElementById('transition-duration-slider').value) * fps;
-
-        showRunner();
-
-        const mapEl = document.getElementById('map');
-        const originalClientHeight = mapEl.clientHeight || window.innerHeight;
-        const originalWidth = mapEl.style.width;
-        const originalHeight = mapEl.style.height;
-        
-        // Resize the container to render native sharp target resolution
-        mapEl.style.width = targetW + 'px';
-        mapEl.style.height = targetH + 'px';
-        map.resize();
-
-        // Wait to ensure MapLibre fully updates internal bounds
-        await new Promise(r => setTimeout(r, 250));
-
-        // SCALING MATH: Keeps everything visually 1:1 mathematically identical across resolutions
-        const framingScale = targetH / originalClientHeight;
-        const exportScale = scaleFactor * framingScale; 
-        const zoomOffset = Math.log2(targetH / originalClientHeight);
-        const exportCameraZoom = cameraZoom + zoomOffset;
-        
-        const padTopExport = cameraFramingOffset > 0 ? cameraFramingOffset * framingScale : 0;
-        const padBottomExport = cameraFramingOffset < 0 ? Math.abs(cameraFramingOffset) * framingScale : 0;
-
-        // Scale stroke thickness and runner circle for export
-        const origRouteThickness = parseInt(document.getElementById('route-thickness-slider').value, 10);
-        const origRunnerSize = parseInt(document.getElementById('runner-size-slider').value, 10);
-        const exportRouteThickness = origRouteThickness * framingScale;
-        const exportRunnerSize = origRunnerSize * framingScale;
-
-        ['past', 'future'].forEach(t => {
-            if (map.getLayer(`route-line-${t}-glow`)) map.setPaintProperty(`route-line-${t}-glow`, 'line-width', exportRouteThickness + (10 * framingScale));
-            if (map.getLayer(`route-line-${t}-casing`)) map.setPaintProperty(`route-line-${t}-casing`, 'line-width', exportRouteThickness + (4 * framingScale));
-            if (map.getLayer(`route-line-${t}`)) map.setPaintProperty(`route-line-${t}`, 'line-width', exportRouteThickness);
-        });
-        if (map.getLayer('runner-point')) {
-            map.setPaintProperty('runner-point', 'circle-radius', exportRunnerSize);
-            map.setPaintProperty('runner-point', 'circle-stroke-width', 4 * framingScale);
-        }
-        if (map.getLayer('runner-point-symbol')) map.setLayoutProperty('runner-point-symbol', 'icon-size', exportRunnerSize / 10);
-
-        const mapCanvas = map.getCanvas();
-        const compositeCanvas = document.createElement('canvas');
-        compositeCanvas.width = targetW;
-        compositeCanvas.height = targetH;
-        const ctx = compositeCanvas.getContext('2d');
-
-        try {
-            let fileName = document.getElementById('export-filename').value.trim() || "My_Epic_Run";
-            let fileStream = null;
-            let target;
-            
-            if (window.showSaveFilePicker) {
-                try {
-                    const fileHandle = await window.showSaveFilePicker({ 
-                        suggestedName: `${fileName}.webm`, 
-                        types: [{ description: 'WebM Video', accept: { 'video/webm': ['.webm'] } }] 
-                    });
-                    fileStream = await fileHandle.createWritable();
-                    target = new WebMMuxer.FileSystemWritableFileStreamTarget(fileStream);
-                    document.getElementById('status').innerText = `Streaming ${resKey}p Video to Disk...`;
-                } catch (err) {
-                    document.getElementById('status').innerText = 'Export Canceled.';
-                    throw err; 
-                }
-            } else {
-                target = new WebMMuxer.ArrayBufferTarget();
-            }
-
-            const muxer = new WebMMuxer.Muxer({ target: target, video: { codec: 'V_VP9', width: targetW, height: targetH, frameRate: fps } });
-            const videoEncoder = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => console.error(e) });
-            videoEncoder.configure({ codec: 'vp09.00.10.08', width: targetW, height: targetH, bitrate: targetBR, framerate: fps });
-
-            let frameIdx = 0;
-            const step = (0.24 * speedMultiplier) / fps;
-            const totalRunFrames = Math.ceil(totalRouteDistance / step);
-            
-            let totalF = totalRunFrames;
-            if (enableIntro) totalF += holdFrames + transFrames;
-            if (enableOutro) totalF += holdFrames + transFrames;
-
-            // Frame Bake Recorder Function
-            async function recordFrame(distValue) {
-                await new Promise(r => { let f = 0; const c = () => { if (map.loaded() && map.areTilesLoaded()) { f++; if (f >= 5) return r(); } else f = 0; requestAnimationFrame(c); }; requestAnimationFrame(c); });
-                ctx.drawImage(mapCanvas, 0, 0, targetW, targetH);
-                
-                let currentY = targetH - (40 * exportScale) - (60 * exportScale);
-                let currentX = targetW - 40;
-                const pt = originalDataPoints.find(p => p.dist >= distValue) || originalDataPoints[originalDataPoints.length-1];
-                
-                if (showMileage) {
-                    const txt = (distValue * 0.621371).toFixed(2) + " MI"; 
-                    const metrics = drawSickHUD(ctx, currentX, currentY, "DISTANCE", txt, "#ffffff", exportScale);
-                    if (layout === 'horizontal') currentX -= (metrics.width + 12 * exportScale);
-                    else currentY -= (metrics.height + 12 * exportScale);
-                }
-                if (showTimer) {
-                    let timerTxt = "00:00";
-                    if (pt && pt.time && originalDataPoints.length > 0 && originalDataPoints[0].time) {
-                        timerTxt = formatTime(pt.time - originalDataPoints[0].time);
-                    }
-                    const metrics = drawSickHUD(ctx, currentX, currentY, "ELAPSED", timerTxt, "#00aeff", exportScale);
-                    if (layout === 'horizontal') currentX -= (metrics.width + 12 * exportScale);
-                    else currentY -= (metrics.height + 12 * exportScale);
-                }
-                if (showPace) {
-                    let paceTxt = "--:-- /MI";
-                    if (pt && pt.time && originalDataPoints.length > 0 && originalDataPoints[0].time && distValue > 0) {
-                        let elapsedMins = (pt.time - originalDataPoints[0].time) / 60000;
-                        let distMi = distValue * 0.621371;
-                        if (distMi > 0.02) { 
-                            let paceMins = elapsedMins / distMi;
-                            if (paceMins < 99) {
-                                let pM = Math.floor(paceMins);
-                                let pS = Math.floor((paceMins - pM) * 60);
-                                paceTxt = `${pM}:${pS.toString().padStart(2, '0')} /MI`;
-                            }
-                        }
-                    }
-                    const metrics = drawSickHUD(ctx, currentX, currentY, "PACE", paceTxt, "#ffb800", exportScale);
-                    if (layout === 'horizontal') currentX -= (metrics.width + 12 * exportScale);
-                    else currentY -= (metrics.height + 12 * exportScale);
-                }
-                if (showHR) {
-                    let hrTxt = "-- BPM";
-                    if (pt && pt.hr) hrTxt = pt.hr + " BPM";
-                    const metrics = drawSickHUD(ctx, currentX, currentY, "HEART RATE", hrTxt, "#fc4c02", exportScale);
-                    if (layout === 'horizontal') currentX -= (metrics.width + 12 * exportScale);
-                    else currentY -= (metrics.height + 12 * exportScale);
-                }
-                if (showGlucose) {
-                    let glucTxt = "-- mg/dL";
-                    if (pt && pt.time && dexcomData.length > 0) {
-                        let closest = dexcomData[0];
-                        let minDiff = Math.abs(pt.time - closest.time);
-                        for(let i=1; i<dexcomData.length; i++) {
-                            let diff = Math.abs(pt.time - dexcomData[i].time);
-                            if (diff < minDiff) { minDiff = diff; closest = dexcomData[i]; }
-                        }
-                        if (minDiff < 15 * 60 * 1000) glucTxt = closest.glucose + " mg/dL";
-                    }
-                    const metrics = drawSickHUD(ctx, currentX, currentY, "GLUCOSE", glucTxt, "#00a859", exportScale);
-                    if (layout === 'horizontal') currentX -= (metrics.width + 12 * exportScale);
-                    else currentY -= (metrics.height + 12 * exportScale);
-                }
-
-                const vFrame = new VideoFrame(compositeCanvas, { timestamp: (frameIdx * 1e6) / fps });
-                videoEncoder.encode(vFrame, { keyFrame: frameIdx % 60 === 0 });
-                vFrame.close(); frameIdx++;
-                if (frameIdx % 10 === 0) document.getElementById('status').innerText = `Baking ${resKey}p Video: ${Math.round((frameIdx/totalF)*100)}%`;
-            }
-
-            const overview = getOverviewCamera();
-            const physStart = calculateCameraPhysics(0, totalRouteDistance, 0);
-            const startBearing = isTrackRun ? 0 : physStart.targetB;
-            const startPos = isTrackRun ? trackCenter : routeCoordinates[0];
-
-            // Phase 1: Intro
-            if (enableIntro) {
-                for (let f = 0; f < holdFrames; f++) {
-                    map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[0] } });
-                    updateRouteSlicingByDist(0);
-                    map.jumpTo({ center: overview.center, zoom: overview.zoom + zoomOffset, pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
-                    await recordFrame(0);
-                }
-                for (let f = 0; f <= transFrames; f++) {
-                    const t = f / transFrames;
-                    const easeT = easeInOut(t);
-                    const cCenter = lerpLngLat(overview.center, startPos, easeT);
-                    const cZoom = lerp(overview.zoom + zoomOffset, exportCameraZoom, easeT);
-                    const cPitch = lerp(0, cameraPitch, easeT);
-                    const cBearing = lerpBearing(0, startBearing, easeT);
-                    
-                    map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': routeCoordinates[0] } });
-                    updateRouteSlicingByDist(0);
-                    map.jumpTo({ center: cCenter, zoom: cZoom, pitch: cPitch, bearing: cBearing, padding: { top: padTopExport * easeT, bottom: padBottomExport * easeT, left: 0, right: 0 } });
-                    await recordFrame(0);
-                }
-            }
-
-            // Phase 2: Simulation Loop
-            let exDist = 0.0;
-            let exBearing = startBearing;
-            let exPos = [...startPos];
-            let exRunnerPos = [...routeCoordinates[0]];
-
-            while (exDist < totalRouteDistance) {
-                const phys = calculateCameraPhysics(exDist, totalRouteDistance, exBearing);
-                
-                if (isTrackRun) {
-                    let pWeight = Math.pow((100 - cameraSmoothness) / 100, 2) * 0.4 + 0.1;
-                    exPos[0] += (trackCenter[0] - exPos[0]) * pWeight;
-                    exPos[1] += (trackCenter[1] - exPos[1]) * pWeight;
-                    exBearing = (exDist / totalRouteDistance) * 360;
-                } else {
-                    let pWeight = Math.pow((100 - cameraSmoothness) / 100, 2) * 0.4 + 0.1;
-                    exPos[0] += (phys.rPos[0] - exPos[0]) * pWeight;
-                    exPos[1] += (phys.rPos[1] - exPos[1]) * pWeight;
-                    exBearing = phys.newBearing;
-                }
-                
-                exRunnerPos = [...phys.rPos];
-
-                map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': exRunnerPos } });
-                updateRouteSlicingByDist(exDist);
-                
-                map.jumpTo({ center: exPos, zoom: exportCameraZoom, pitch: cameraPitch, bearing: exBearing + cameraRotationOffset, padding: { top: padTopExport, bottom: padBottomExport, left: 0, right: 0 } });
-                await recordFrame(exDist);
-                exDist += step;
-            }
-
-            // Phase 3: Outro
-            if (enableOutro) {
-                let exOutroStartCenter = [...exPos];
-                let exOutroStartBearing = exBearing;
-                for (let f = 0; f <= transFrames; f++) {
-                    const t = f / transFrames;
-                    const easeT = easeInOut(t);
-                    const cCenter = lerpLngLat(exOutroStartCenter, overview.center, easeT);
-                    const cZoom = lerp(exportCameraZoom, overview.zoom + zoomOffset, easeT);
-                    const cPitch = lerp(cameraPitch, 0, easeT);
-                    const cBearing = lerpBearing(exOutroStartBearing + cameraRotationOffset, 0, easeT);
-                    
-                    map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': exRunnerPos } });
-                    updateRouteSlicingByDist(totalRouteDistance);
-                    map.jumpTo({ center: cCenter, zoom: cZoom, pitch: cPitch, bearing: cBearing, padding: { top: padTopExport * (1-easeT), bottom: padBottomExport * (1-easeT), left: 0, right: 0 } });
-                    await recordFrame(totalRouteDistance);
-                }
-                for (let f = 0; f < holdFrames; f++) {
-                    map.getSource('runner').setData({ 'type': 'Feature', 'geometry': { 'type': 'Point', 'coordinates': exRunnerPos } });
-                    updateRouteSlicingByDist(totalRouteDistance);
-                    map.jumpTo({ center: overview.center, zoom: overview.zoom + zoomOffset, pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
-                    await recordFrame(totalRouteDistance);
-                }
-            }
-            
-            await videoEncoder.flush(); muxer.finalize();
-            
-            if (fileStream) {
-                await fileStream.close(); 
-            } else {
-                const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([muxer.target.buffer], { type: 'video/webm' }));
-                a.download = `${fileName}.webm`; a.click();
-            }
-            
-            document.getElementById('status').innerText = 'Export Complete.';
-        } catch (err) { 
-            console.error(err); 
-            if (document.getElementById('status').innerText !== 'Export Canceled.') {
-                document.getElementById('status').innerText = 'Export Error (Check Console)';
-            }
-        } finally { 
-            document.getElementById('play-btn').disabled = false; 
-            document.getElementById('export-btn').disabled = false; 
-            hideRunner(); 
-            
-            // Revert layout size adjustments
-            mapEl.style.width = originalWidth || '100%';
-            mapEl.style.height = originalHeight || '100%';
-            map.resize();
-
-            // Revert Paint Scale Attributes
-            ['past', 'future'].forEach(t => {
-                if (map.getLayer(`route-line-${t}-glow`)) map.setPaintProperty(`route-line-${t}-glow`, 'line-width', origRouteThickness + 10);
-                if (map.getLayer(`route-line-${t}-casing`)) map.setPaintProperty(`route-line-${t}-casing`, 'line-width', origRouteThickness + 4);
-                if (map.getLayer(`route-line-${t}`)) map.setPaintProperty(`route-line-${t}`, 'line-width', origRouteThickness);
-            });
-            if (map.getLayer('runner-point')) {
-                map.setPaintProperty('runner-point', 'circle-radius', origRunnerSize);
-                map.setPaintProperty('runner-point', 'circle-stroke-width', 4);
-            }
-            if (map.getLayer('runner-point-symbol')) map.setLayoutProperty('runner-point-symbol', 'icon-size', origRunnerSize / 10);
-            
-            // Jump back to correct preview overview
-            const overview = getOverviewCamera();
-            map.jumpTo({ center: overview.center, zoom: overview.zoom, pitch: overview.pitch, bearing: overview.bearing, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
+        ctx.font = 'bold 40px ui-monospace, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(i.toString(), cx, cy + 2);
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const imgName = 'mile-pin-' + i;
+        if (map.hasImage(imgName)) {
+            map.updateImage(imgName, imgData);
+        } else {
+            map.addImage(imgName, imgData);
         }
     }
+}
 
-    document.getElementById('export-btn').addEventListener('click', triggerExport);
-</script>
-</body>
-</html>
+function syncStateFromTimeline(isProxyPlay=false,updateCamera=true){if(routeCoordinates.length===0)return;animProps.forEach(prop=>{const val=getAnimValue(prop.id);const inputEl=getEl(prop.slider||prop.input);if(inputEl&&document.activeElement!==inputEl){if(prop.type==='checkbox')inputEl.checked=val>=0.5;else if(prop.type==='select')inputEl.value=val>=0.5?'horizontal':'vertical';else inputEl.value=val;}if(prop.disp&&!document.activeElement.closest(`#${prop.disp}`)){getEl(prop.disp).innerText=formatDispTxt(prop,val);}});if(map.getSource('lap-circle')){if(getAnimValue('showLapCircle')>=0.5&&!isExporting){updateMapPaint('lap-circle-line','line-opacity',0.8);updateMapPaint('lap-circle-fill','fill-opacity',0.1);let lapRadius=getAnimValue('lapRadius');let baseLapCenter=getLapTarget(currentTimelineProgress).baseCenter;if(lapRadius>0){let circleGeo=turf.circle(baseLapCenter,lapRadius,{units:'kilometers',steps:64});map.getSource('lap-circle').setData(circleGeo);}else{map.getSource('lap-circle').setData({'type':'Feature','geometry':{'type':'Polygon','coordinates':[]}});}}else{updateMapPaint('lap-circle-line','line-opacity',0);updateMapPaint('lap-circle-fill','fill-opacity',0);}}if(!isProxyPlay){updateMapTerrain('terrain-source',getAnimValue('terrain'));const rtThick=getAnimValue('routeThickness');const mode=getEl('route-mode').value;const opGlow=0.4,opCase=0.3,opCore=1.0;['past','future'].forEach(t=>{let glowOp=0,caseOp=0,coreOp=0;if(mode==='solid'){glowOp=t==='past'?opGlow:0;caseOp=t==='past'?opCase:0;coreOp=t==='past'?opCore:0;}else if(mode==='progress'){glowOp=opGlow;caseOp=opCase;coreOp=opCore;}const colorVal=getAnimValue(t==='past'?'routeColorPast':'routeColorFuture');if(map.getLayer(`route-line-${t}-glow`)){updateMapPaint(`route-line-${t}-glow`,'line-width',rtThick+10);updateMapPaint(`route-line-${t}-glow`,'line-color',colorVal);updateMapPaint(`route-line-${t}-glow`,'line-opacity',glowOp);}if(map.getLayer(`route-line-${t}-casing`)){updateMapPaint(`route-line-${t}-casing`,'line-width',rtThick+4);updateMapPaint(`route-line-${t}-casing`,'line-opacity',caseOp);}if(map.getLayer(`route-line-${t}`)){updateMapPaint(`route-line-${t}`,'line-width',rtThick);updateMapPaint(`route-line-${t}`,'line-color',colorVal);updateMapPaint(`route-line-${t}`,'line-opacity',coreOp);}});
+updateMarkerPinImages(getAnimValue('markerColor'));
+if(map.getLayer('mile-markers-layer') && !isExporting){
+    updateMapLayout('mile-markers-layer','icon-size',getAnimValue('markerSize'));
+}
+if (map.getLayer('mile-markers-layer')) {
+    let mMode = Math.round(getAnimValue('markerMode'));
+    let filterString = `${mMode}_${mMode > 1 ? currentDistance.toFixed(4) : 0}`;
+    if (mapStateCache['marker_filter'] !== filterString) {
+        if (mMode === 0) map.setFilter('mile-markers-layer', ['==', 'mile', -1]);
+        else if (mMode === 1) map.setFilter('mile-markers-layer', ['has', 'mile']);
+        else if (mMode === 2) map.setFilter('mile-markers-layer', ['>', 'dist', currentDistance]);
+        else if (mMode === 3) map.setFilter('mile-markers-layer', ['<=', 'dist', currentDistance]);
+        mapStateCache['marker_filter'] = filterString;
+    }
+}
+const rSize=getAnimValue('runnerSize');const outlineThick=getAnimValue('runnerOutlineThickness');if(map.getLayer('runner-point')){updateMapPaint('runner-point','circle-radius',rSize);updateMapPaint('runner-point','circle-color',getAnimValue('runnerColor'));updateMapPaint('runner-point','circle-stroke-color',getAnimValue('runnerOutlineColor'));updateMapPaint('runner-point','circle-stroke-width',outlineThick);}if(map.getLayer('runner-point-symbol')){updateMapLayout('runner-point-symbol','icon-size',rSize/64);}showRunner();updateRouteSlicingByDist(currentDistance);getEl('stats-overlay').style.display='flex';renderStatsOverlay(currentDistance);}else{getEl('stats-overlay').style.display='none';}let tod=getAnimValue('timeOfDay');let distToNoon=Math.abs(tod-12);let brightness=1.0-(distToNoon/12)*0.75;if(map.getLayer('satellite-layer')){updateMapPaint('satellite-layer','raster-brightness-max',brightness);updateMapPaint('satellite-layer','raster-saturation',-(distToNoon/12)*0.6);}if(updateCamera){const phys=calculateCameraPhysics(currentDistance,totalRouteDistance,currentCameraBearing);let lapMix=isTrackRun?getAnimValue('enableLoop'):0;let cSmooth=getAnimValue('smoothness');let lapTarget=getLapTarget(currentTimelineProgress);let targetPos=[lerp(phys.rPos[0],lapTarget.pos[0],lapMix),lerp(phys.rPos[1],lapTarget.pos[1],lapMix)];let targetBear=lerpBearing(phys.newBearing,lapTarget.bear,lapMix);if(playPhase==='run'&&animationId){let pWeight=Math.pow((100-cSmooth)/100,2)*0.4+0.1;currentCameraPos[0]+=(targetPos[0]-currentCameraPos[0])*pWeight;currentCameraPos[1]+=(targetPos[1]-currentCameraPos[1])*pWeight;currentCameraBearing=targetBear;}else{currentCameraPos=[...targetPos];currentCameraBearing=targetBear;}currentRunnerPos=[...phys.rPos];map.getSource('runner').setData({'type':'Feature','geometry':{'type':'Point','coordinates':currentRunnerPos}});let padTop=getAnimValue('framing')>0?getAnimValue('framing'):0;let padBottom=getAnimValue('framing')<0?Math.abs(getAnimValue('framing')):0;map.jumpTo({center:currentCameraPos,zoom:getAnimValue('zoom'),pitch:getAnimValue('pitch'),bearing:currentCameraBearing+getAnimValue('rotation'),padding:{top:padTop,bottom:padBottom,left:0,right:0}});}}
+function drawTimeRuler(){const cvs=getEl('time-ruler-canvas');const parent=cvs.parentElement;cvs.width=parent.clientWidth;cvs.height=parent.clientHeight;const ctx=cvs.getContext('2d');ctx.clearRect(0,0,cvs.width,cvs.height);ctx.fillStyle='#9e9e9e';ctx.font='10px ui-monospace, monospace';ctx.textAlign='center';const steps=Math.floor(10*timelineZoom);for(let i=0;i<=steps;i++){let x=(i/steps)*cvs.width;ctx.fillRect(x,cvs.height-6,1,6);ctx.fillText(`${((i/steps)*100).toFixed(0)}%`,x,14);}}window.addEventListener('resize',drawTimeRuler);
+getEl('enable-loop-checkbox').addEventListener('change',()=>{if(!animationId)syncStateFromTimeline(false,true);});
+animProps.forEach(prop=>{const inputEl=getEl(prop.slider||prop.input);if(inputEl){inputEl.addEventListener('input',(e)=>{let val;if(prop.type==='color')val=e.target.value;else if(prop.type==='checkbox')val=e.target.checked?1:0;else if(prop.type==='select')val=e.target.value==='horizontal'?1:0;else if(prop.type==='select-int')val=parseInt(e.target.value,10);else val=parseFloat(e.target.value);if(prop.disp){const dispEl=getEl(prop.disp);if(!dispEl.querySelector('input'))dispEl.innerText=formatDispTxt(prop,val);}let kfs=keyframes[prop.id];const existingIdx=kfs.findIndex(k=>Math.abs(k.p-currentTimelineProgress)<0.01);const autoKfEnabled=getEl('auto-kf-checkbox').checked;if(autoKfEnabled){if(existingIdx>=0)kfs[existingIdx].v=val;else{kfs.push({p:currentTimelineProgress,v:val});kfs.sort((a,b)=>a.p-b.p);}renderTimelineTracks();updateKeyframeButtons();}else{if(existingIdx>=0)kfs[existingIdx].v=val;}invalidateCache();if(!animationId)syncStateFromTimeline(false,true);});}});
+window.clearCustomAvatar=function(){useCustomImage=false;if(map.hasImage('custom-runner'))map.removeImage('custom-runner');if(!animationId)syncStateFromTimeline(false,true);};
+function getOverviewCamera(){if(routeCoordinates.length===0)return{center:[0,0],zoom:11,pitch:0,bearing:0};const bounds=routeCoordinates.reduce((b,c)=>b.extend(c),new maplibregl.LngLatBounds(routeCoordinates[0],routeCoordinates[0]));const camera=map.cameraForBounds(bounds,{padding:50});return{center:[camera.center.lng,camera.center.lat],zoom:camera.zoom,pitch:0,bearing:0};}
+function formatTime(ms){if(isNaN(ms)||ms<0)return"00:00";let totalSeconds=Math.floor(ms/1000),hours=Math.floor(totalSeconds/3600),minutes=Math.floor((totalSeconds%3600)/60),seconds=totalSeconds%60;let formattedSecs=seconds.toString().padStart(2,'0'),formattedMins=minutes.toString().padStart(2,'0');if(hours>0)return`${hours}:${formattedMins}:${formattedSecs}`;return`${formattedMins}:${formattedSecs}`;}
+map.on('load',()=>{map.addSource('start-point',{'type':'geojson','data':{'type':'Feature','geometry':{'type':'Point','coordinates':[0,0]}}});map.addLayer({'id':'start-circle-bg','type':'circle','source':'start-point','paint':{'circle-radius':12,'circle-color':'#ffffff','circle-opacity':0}});map.addLayer({'id':'start-circle','type':'circle','source':'start-point','paint':{'circle-radius':8,'circle-color':'#10b981','circle-opacity':0}});map.addSource('route-past',{'type':'geojson','data':{'type':'Feature','geometry':{'type':'LineString','coordinates':[]}}});map.addLayer({'id':'route-line-past-glow','type':'line','source':'route-past','layout':{'line-join':'round','line-cap':'round'},'paint':{'line-color':'#f97316','line-width':20,'line-opacity':0.4,'line-blur':8}});map.addLayer({'id':'route-line-past-casing','type':'line','source':'route-past','layout':{'line-join':'round','line-cap':'round'},'paint':{'line-color':'#000000','line-width':14,'line-opacity':0.3}});map.addLayer({'id':'route-line-past','type':'line','source':'route-past','layout':{'line-join':'round','line-cap':'round'},'paint':{'line-color':'#f97316','line-width':10,'line-opacity':1.0}});map.addSource('route-future',{'type':'geojson','data':{'type':'Feature','geometry':{'type':'LineString','coordinates':[]}}});map.addLayer({'id':'route-line-future-glow','type':'line','source':'route-future','layout':{'line-join':'round','line-cap':'round'},'paint':{'line-color':'#52525b','line-width':20,'line-opacity':0,'line-blur':8}});map.addLayer({'id':'route-line-future-casing','type':'line','source':'route-future','layout':{'line-join':'round','line-cap':'round'},'paint':{'line-color':'#000000','line-width':14,'line-opacity':0}});map.addLayer({'id':'route-line-future','type':'line','source':'route-future','layout':{'line-join':'round','line-cap':'round'},'paint':{'line-color':'#52525b','line-width':10,'line-opacity':0}});map.addSource('lap-circle',{'type':'geojson','data':{'type':'Feature','geometry':{'type':'Polygon','coordinates':[]}}});map.addLayer({'id':'lap-circle-fill','type':'fill','source':'lap-circle','paint':{'fill-color':'#3b82f6','fill-opacity':0}});map.addLayer({'id':'lap-circle-line','type':'line','source':'lap-circle','paint':{'line-color':'#3b82f6','line-width':3,'line-dasharray':[2,2],'line-opacity':0}});map.addSource('finish-point',{'type':'geojson','data':{'type':'Feature','geometry':{'type':'Point','coordinates':[0,0]}}});map.addLayer({'id':'finish-circle-bg','type':'circle','source':'finish-point','paint':{'circle-radius':12,'circle-color':'#ffffff','circle-opacity':0}});map.addLayer({'id':'finish-circle','type':'circle','source':'finish-point','paint':{'circle-radius':8,'circle-color':'#f97316','circle-opacity':0}});
+map.addSource('mile-markers',{'type':'geojson','data':{'type':'FeatureCollection','features':[]}});
+map.addLayer({'id':'mile-markers-layer','type':'symbol','source':'mile-markers','layout':{'icon-image':['get','image'],'icon-size':0.5,'icon-anchor':'bottom','icon-allow-overlap':true,'icon-ignore-placement':true},'paint':{'icon-opacity':1,'icon-opacity-transition':{'duration':200}}});
+map.addSource('runner',{'type':'geojson','data':{'type':'Feature','geometry':{'type':'Point','coordinates':[0,0]}}});map.addLayer({'id':'runner-point','type':'circle','source':'runner','paint':{'circle-radius':10,'circle-color':'#ffffff','circle-stroke-width':4,'circle-stroke-color':'#000000','circle-opacity':0,'circle-stroke-opacity':0}});map.addLayer({'id':'runner-point-symbol','type':'symbol','source':'runner','layout':{'icon-image':'custom-runner','icon-size':1.0,'icon-allow-overlap':true,'icon-rotation-alignment':'viewport'},'paint':{'icon-opacity':0}});initTimelineUI();});
+function showStartFinish(){if(routeCoordinates.length>0){updateMapPaint('start-circle-bg','circle-opacity',1);updateMapPaint('start-circle','circle-opacity',1);updateMapPaint('finish-circle-bg','circle-opacity',1);updateMapPaint('finish-circle','circle-opacity',1);}}
+function showRunner(){const outlineOpacity=getAnimValue('showRunnerOutline')>=0.5?1:0;const isVisible=getAnimValue('showRunner')>=0.5;if(!isVisible){updateMapPaint('runner-point','circle-opacity',0);updateMapPaint('runner-point','circle-stroke-opacity',0);if(map.getLayer('runner-point-symbol'))updateMapPaint('runner-point-symbol','icon-opacity',0);}else if(useCustomImage){updateMapPaint('runner-point','circle-opacity',0);updateMapPaint('runner-point','circle-stroke-opacity',outlineOpacity);updateMapPaint('runner-point-symbol','icon-opacity',1);}else{updateMapPaint('runner-point','circle-opacity',1);updateMapPaint('runner-point','circle-stroke-opacity',outlineOpacity);updateMapPaint('runner-point-symbol','icon-opacity',0);}}
+function hideRunner(){updateMapPaint('runner-point','circle-opacity',0);updateMapPaint('runner-point','circle-stroke-opacity',0);if(map.getLayer('runner-point-symbol'))updateMapPaint('runner-point-symbol','icon-opacity',0);}
+let lastRouteSliceDist=-1,lastRouteMode="";
+function updateRouteSlicingByDist(runDist){if(!rawRouteLine)return;const mode=getEl('route-mode').value;if(Math.abs(runDist-lastRouteSliceDist)<0.001&&mode===lastRouteMode)return;lastRouteSliceDist=runDist;lastRouteMode=mode;if(mode==='solid'){map.getSource('route-past').setData(rawRouteLine);map.getSource('route-future').setData({'type':'Feature','geometry':{'type':'LineString','coordinates':[]}});}else if(mode==='progress'){if(runDist<=0){map.getSource('route-past').setData({'type':'Feature','geometry':{'type':'LineString','coordinates':[]}});map.getSource('route-future').setData(rawRouteLine);}else if(runDist>=totalRouteDistance){map.getSource('route-past').setData(rawRouteLine);map.getSource('route-future').setData({'type':'Feature','geometry':{'type':'LineString','coordinates':[]}});}else{map.getSource('route-past').setData(turf.lineSliceAlong(rawRouteLine,0,runDist));map.getSource('route-future').setData(turf.lineSliceAlong(rawRouteLine,runDist,totalRouteDistance));}}}
+getEl('route-mode').addEventListener('change',()=>{if(!animationId)syncStateFromTimeline(false,true);});
+getEl('runner-image-upload').addEventListener('change',function(e){const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=function(event){const img=new Image();img.onload=function(){const size=128;const canvas=document.createElement('canvas');canvas.width=size;canvas.height=size;const ctx=canvas.getContext('2d');ctx.beginPath();ctx.arc(size/2,size/2,size/2,0,Math.PI*2);ctx.closePath();ctx.save();ctx.clip();const scale=Math.max(size/img.width,size/img.height);ctx.drawImage(img,(size/2)-(img.width/2)*scale,(size/2)-(img.height/2)*scale,img.width*scale,img.height*scale);ctx.restore();if(map.hasImage('custom-runner'))map.removeImage('custom-runner');map.addImage('custom-runner',ctx.getImageData(0,0,size,size));useCustomImage=true;if(!animationId)syncStateFromTimeline(false,true);};img.src=event.target.result;};reader.readAsDataURL(file);});
+getEl('gpx-upload').addEventListener('change',function(e){const file=e.target.files[0];if(!file)return;getEl('export-filename').value=file.name.replace(/\.[^/.]+$/,"");const reader=new FileReader();reader.onload=(event)=>parseGPX(event.target.result);reader.readAsText(file);});
+function parseGPX(xmlText){const parser=new DOMParser();const xmlDoc=parser.parseFromString(xmlText,"text/xml");const trackPoints=xmlDoc.getElementsByTagName('trkpt');routeCoordinates=[];originalDataPoints=[];let cumDist=0;for(let i=0;i<trackPoints.length;i++){const lon=parseFloat(trackPoints[i].getAttribute('lon'));const lat=parseFloat(trackPoints[i].getAttribute('lat'));let timeMs=null;const timeTags=trackPoints[i].getElementsByTagName('time');if(timeTags.length>0)timeMs=Date.parse(timeTags[0].textContent);let hr=null;const allTags=trackPoints[i].getElementsByTagName('*');for(let j=0;j<allTags.length;j++){if(allTags[j].localName==='hr'){hr=parseInt(allTags[j].textContent,10);break;}}routeCoordinates.push([lon,lat]);if(i>0)cumDist+=turf.distance(turf.point(routeCoordinates[i-1]),turf.point(routeCoordinates[i]),{units:'kilometers'});originalDataPoints.push({dist:cumDist,time:timeMs,hr:hr});}if(routeCoordinates.length>1){rawRouteLine=turf.lineString(routeCoordinates);totalRouteDistance=turf.length(rawRouteLine,{units:'kilometers'});let sumLng=0,sumLat=0;for(let i=0;i<routeCoordinates.length;i++){sumLng+=routeCoordinates[i][0];sumLat+=routeCoordinates[i][1];}trackCenter=[sumLng/routeCoordinates.length,sumLat/routeCoordinates.length];const bounds=routeCoordinates.reduce((b,c)=>b.extend(c),new maplibregl.LngLatBounds(routeCoordinates[0],routeCoordinates[0]));const diagDist=turf.distance(turf.point([bounds.getWest(),bounds.getSouth()]),turf.point([bounds.getEast(),bounds.getNorth()]),{units:'kilometers'});isTrackRun=(diagDist>0&&(totalRouteDistance/diagDist)>3.0);
+const numMiles = Math.floor(totalRouteDistance * 0.621371);
+const mileMarkersGeoJSON = { type: 'FeatureCollection', features: [] };
+for (let i = 1; i <= numMiles; i++) {
+    const distKm = i / 0.621371;
+    const pt = turf.along(rawRouteLine, distKm, {units: 'kilometers'});
+    pt.properties = { mile: i, dist: distKm, image: 'mile-pin-' + i };
+    mileMarkersGeoJSON.features.push(pt);
+}
+if(map.getSource('mile-markers')) map.getSource('mile-markers').setData(mileMarkersGeoJSON);
+updateMarkerPinImages(getAnimValue('markerColor'));
+map.getSource('start-point').setData({'type':'Feature','geometry':{'type':'Point','coordinates':routeCoordinates[0]}});map.getSource('finish-point').setData({'type':'Feature','geometry':{'type':'Point','coordinates':routeCoordinates[routeCoordinates.length-1]}});showStartFinish();updateRouteSlicingByDist(0);const overview=getOverviewCamera();map.jumpTo({center:overview.center,zoom:overview.zoom,pitch:overview.pitch,bearing:overview.bearing,padding:{top:0,bottom:0,left:0,right:0}});getEl('play-btn').disabled=false;getEl('export-btn').disabled=false;setTimelineProgress(0);}}
+getEl('dexcom-upload').addEventListener('change',function(e){const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=(event)=>{const text=event.target.result;const lines=text.split('\n');dexcomData=[];let timeIdx=-1,glucIdx=-1;for(let i=0;i<lines.length;i++){if(!lines[i].trim())continue;const cols=lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)||lines[i].split(',');const cleanCols=cols.map(c=>c.replace(/^"|"$/g,'').trim());if(timeIdx===-1&&glucIdx===-1){const tI=cleanCols.findIndex(c=>c.toLowerCase().match(/time|date/));const gI=cleanCols.findIndex(c=>c.toLowerCase().match(/glucose|mg\/dl|value/)&&!c.toLowerCase().includes('type'));if(tI>=0&&gI>=0){timeIdx=tI;glucIdx=gI;}continue;}if(timeIdx>=0&&glucIdx>=0&&cleanCols.length>Math.max(timeIdx,glucIdx)){let tsStr=cleanCols[timeIdx].replace(' ','T');const ts=Date.parse(tsStr);const val=parseInt(cleanCols[glucIdx],10);if(!isNaN(ts)&&!isNaN(val))dexcomData.push({time:ts,glucose:val});}}dexcomData.sort((a,b)=>a.time-b.time);if(!animationId)syncStateFromTimeline(false,true);};reader.readAsText(file);});
+function calculateCameraPhysics(dist,totalDist,currentB){const runnerPoint=turf.along(rawRouteLine,dist,{units:'kilometers'});const rPos=runnerPoint.geometry.coordinates;let cSmooth=getAnimValue('smoothness');const lookAhead=0.05+(cSmooth/100)*0.25;const targetPoint=turf.along(rawRouteLine,Math.min(dist+lookAhead,totalDist),{units:'kilometers'});let targetB=turf.bearing(runnerPoint,targetPoint);let bDiff=targetB-currentB;while(bDiff>180)bDiff-=360;while(bDiff<-180)bDiff+=360;let bWeight=Math.pow((100-cSmooth)/100,3)*0.15+0.002;let newBearing=currentB+(bDiff*bWeight);return{rPos,newBearing,targetB};}
+let lastOverlayHTML="";
+function renderStatsOverlay(dist){
+    const overlay=getEl('stats-overlay');
+    const showMileage=getAnimValue('showMileage')>=0.5,
+          showTimer=getAnimValue('showTimer')>=0.5,
+          showPace=getAnimValue('showPace')>=0.5,
+          showHR=getAnimValue('showHR')>=0.5,
+          showGlucose=getAnimValue('showGlucose')>=0.5;
+    
+    const scale=getAnimValue('hudSize');
+    const layout=getAnimValue('statLayout')>=0.5?'horizontal':'vertical';
+    const alignX=getAnimValue('hudAlignX'); // 0=Left, 1=Center, 2=Right
+    const alignY=getAnimValue('hudAlignY'); // 0=Top, 1=Center, 2=Bottom
+    const showBg=getAnimValue('hudBackground')>=0.5;
+    const textColor=getAnimValue('hudTextColor');
+
+    if (layout === 'horizontal') overlay.style.flexDirection = alignX === 0 ? 'row' : 'row-reverse';
+    else overlay.style.flexDirection = alignY === 0 ? 'column' : 'column-reverse';
+
+    overlay.style.top = 'auto'; overlay.style.bottom = 'auto'; overlay.style.left = 'auto'; overlay.style.right = 'auto';
+    overlay.style.bottom = alignY === 2 ? '290px' : 'auto';
+    overlay.style.top = alignY === 0 ? '40px' : (alignY === 1 ? '50%' : 'auto');
+    overlay.style.right = alignX === 2 ? '40px' : 'auto';
+    overlay.style.left = alignX === 0 ? '40px' : (alignX === 1 ? '50%' : 'auto');
+
+    let transformStr = `scale(${scale})`;
+    if (alignX === 1 && alignY === 1) transformStr = `translate(-50%, -50%) ${transformStr}`;
+    else if (alignX === 1) transformStr = `translateX(-50%) ${transformStr}`;
+    else if (alignY === 1) transformStr = `translateY(-50%) ${transformStr}`;
+    
+    overlay.style.transform = transformStr;
+    overlay.style.transformOrigin = `${alignX === 0 ? 'left' : (alignX === 1 ? 'center' : 'right')} ${alignY === 0 ? 'top' : (alignY === 1 ? 'center' : 'bottom')}`;
+
+    const bgStyle = showBg ? '' : 'background: transparent; border: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; padding: 0 10px; height: auto; margin: 5px 0;';
+    const txtShadow = showBg ? 'none' : '0 4px 16px rgba(0,0,0,0.9), 0 2px 4px rgba(0,0,0,0.9)';
+    const iconSvg = (content, color) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; margin-top:-2px; vertical-align:middle; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">${content}</svg>`;
+
+    let html=[];
+    const pt=originalDataPoints.find(p=>p.dist>=dist)||originalDataPoints[originalDataPoints.length-1];
+
+    if(showMileage) html.push(`<div class="stat-box" style="border-left-color: #ffffff; ${bgStyle}"><div class="stat-label" style="text-shadow: ${txtShadow}">${iconSvg('M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7', '#ffffff')} DISTANCE</div><div class="stat-value" style="color: ${textColor}; text-shadow: ${txtShadow};">${(dist*0.621371).toFixed(2)} MI</div></div>`);
+    if(showTimer){
+        let timerTxt="00:00"; if(pt&&pt.time&&originalDataPoints.length>0&&originalDataPoints[0].time) timerTxt=formatTime(pt.time-originalDataPoints[0].time);
+        html.push(`<div class="stat-box" style="border-left-color: #3b82f6; ${bgStyle}"><div class="stat-label" style="text-shadow: ${txtShadow}">${iconSvg('M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 6v6l4 2', '#3b82f6')} ELAPSED</div><div class="stat-value" style="color: ${textColor}; text-shadow: ${txtShadow};">${timerTxt}</div></div>`);
+    }
+    if(showPace){
+        let paceTxt="--:-- /MI"; if(pt&&pt.time&&originalDataPoints.length>0&&originalDataPoints[0].time&&dist>0){ let elapsedMins=(pt.time-originalDataPoints[0].time)/60000; let distMi=dist*0.621371; if(distMi>0.02){ let paceMins=elapsedMins/distMi; if(paceMins<99){ let pM=Math.floor(paceMins); let pS=Math.floor((paceMins-pM)*60); paceTxt=`${pM}:${pS.toString().padStart(2,'0')} /MI`; } } }
+        html.push(`<div class="stat-box" style="border-left-color: #eab308; ${bgStyle}"><div class="stat-label" style="text-shadow: ${txtShadow}">${iconSvg('M13 2L3 14h9l-1 8 10-12h-9l1-8z', '#eab308')} PACE</div><div class="stat-value" style="color: ${textColor}; text-shadow: ${txtShadow};">${paceTxt}</div></div>`);
+    }
+    if(showHR){
+        let hrTxt="-- BPM"; if(pt&&pt.hr)hrTxt=pt.hr+" BPM";
+        html.push(`<div class="stat-box" style="border-left-color: #f43f5e; ${bgStyle}"><div class="stat-label" style="text-shadow: ${txtShadow}">${iconSvg('M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z', '#f43f5e')} HEART RATE</div><div class="stat-value" style="color: ${textColor}; text-shadow: ${txtShadow};">${hrTxt}</div></div>`);
+    }
+    if(showGlucose){
+        let glucTxt="-- mg/dL"; if(pt&&pt.time&&dexcomData.length>0){ let closest=dexcomData[0]; let minDiff=Math.abs(pt.time-closest.time); for(let i=1;i<dexcomData.length;i++){ let diff=Math.abs(pt.time-dexcomData[i].time); if(diff<minDiff){ minDiff=diff; closest=dexcomData[i]; } } if(minDiff<15*60*1000) glucTxt=closest.glucose+" mg/dL"; }
+        html.push(`<div class="stat-box" style="border-left-color: #10b981; ${bgStyle}"><div class="stat-label" style="text-shadow: ${txtShadow}">${iconSvg('M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z', '#10b981')} GLUCOSE</div><div class="stat-value" style="color: ${textColor}; text-shadow: ${txtShadow};">${glucTxt}</div></div>`);
+    }
+    const newHTML=html.join('');
+    if(newHTML!==lastOverlayHTML){
+        if(html.length>0){ overlay.style.display='flex'; overlay.innerHTML=newHTML; }
+        else { overlay.style.display='none'; }
+        lastOverlayHTML=newHTML;
+    }
+}
+function drawSickHUD(ctx,x,y,label,value,color,scaleFactor,alignX,showBg,textColor,iconSvgContent){
+    ctx.save();
+    ctx.textBaseline="middle";
+    const fontSizeVal=30*scaleFactor,fontSizeLab=13*scaleFactor,gap=15*scaleFactor,padX=20*scaleFactor,h=60*scaleFactor,borderRadius=6*scaleFactor,borderWidth=6*scaleFactor;
+    
+    ctx.font=`800 ${fontSizeVal}px var(--font-mono)`;
+    const valW=ctx.measureText(value).width;
+    ctx.font=`700 ${fontSizeLab}px var(--font-mono)`;
+    const labW=ctx.measureText(label).width + 24*scaleFactor;
+    
+    const w=labW+gap+valW+padX*2;
+    
+    let boxX = x;
+    if(alignX === 1) boxX = x - w/2;
+    if(alignX === 2) boxX = x - w;
+
+    if (showBg) {
+        ctx.fillStyle="rgba(18, 18, 18, 0.85)";
+        ctx.shadowColor="rgba(0,0,0,0.6)";
+        ctx.shadowBlur=12*scaleFactor;
+        ctx.beginPath();
+        if(ctx.roundRect)ctx.roundRect(boxX,y,w,h,borderRadius);
+        else ctx.rect(boxX,y,w,h);
+        ctx.fill();
+        ctx.shadowBlur=0;
+        
+        ctx.fillStyle=color;
+        ctx.beginPath();
+        if(ctx.roundRect)ctx.roundRect(boxX,y,borderWidth,h,[borderRadius,0,0,borderRadius]);
+        else ctx.rect(boxX,y,borderWidth,h);
+        ctx.fill();
+    } else {
+        ctx.fillStyle=color;
+        ctx.beginPath();
+        if(ctx.roundRect)ctx.roundRect(boxX,y,borderWidth,h,[borderRadius,0,0,borderRadius]);
+        else ctx.rect(boxX,y,borderWidth,h);
+        ctx.fill();
+    }
+
+    ctx.shadowColor = showBg ? "transparent" : "rgba(0,0,0,0.9)";
+    ctx.shadowBlur = showBg ? 0 : 8*scaleFactor;
+    ctx.shadowOffsetY = showBg ? 0 : 2*scaleFactor;
+
+    ctx.save();
+    ctx.translate(boxX + padX + borderWidth/2, y + h/2 - 9*scaleFactor);
+    ctx.scale(scaleFactor*0.75, scaleFactor*0.75);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const p = new Path2D(iconSvgContent);
+    ctx.stroke(p);
+    ctx.restore();
+
+    ctx.fillStyle = showBg ? "rgba(255,255,255,0.6)" : "#ffffff";
+    ctx.textAlign = "left";
+    ctx.fillText(label, boxX + padX + 24*scaleFactor, y + h/2);
+    
+    ctx.fillStyle = textColor;
+    ctx.textAlign = "left";
+    ctx.font = `800 ${fontSizeVal}px var(--font-mono)`;
+    ctx.fillText(value, boxX + padX + labW + gap, y + h/2);
+    
+    ctx.restore();
+    return {width: w, height: h};
+}
+getEl('play-btn').addEventListener('click',()=>{if(animationId)cancelAnimationFrame(animationId);getEl('play-btn').disabled=true;getEl('pause-btn').disabled=false;getEl('stop-btn').disabled=false;getEl('export-btn').disabled=true;showRunner();const previewFPS=60,enableIntro=getEl('show-intro-checkbox').checked,enableOutro=getEl('show-outro-checkbox').checked,holdFrames=parseFloat(getEl('hold-duration-slider').value)*previewFPS,transFrames=parseFloat(getEl('transition-duration-slider').value)*previewFPS,isProxy=getEl('proxy-mode-checkbox').checked;if(currentDistance===0.0&&playFrameIdx===0&&playPhase==='none'){let lapMixStart=isTrackRun?getAnimValue('enableLoop'):0;const physStart=calculateCameraPhysics(0,totalRouteDistance,0);let lapTarget=getLapTarget(0);currentCameraBearing=lerpBearing(physStart.targetB,lapTarget.bear,lapMixStart);currentCameraPos=[lerp(routeCoordinates[0][0],lapTarget.pos[0],lapMixStart),lerp(routeCoordinates[0][1],lapTarget.pos[1],lapMixStart)];currentRunnerPos=[...routeCoordinates[0]];playPhase='intro_hold';}function frame(){const step=(0.24*getAnimValue('speed'))/previewFPS;syncStateFromTimeline(isProxy&&playPhase==='run',true);let padTop=getAnimValue('framing')>0?getAnimValue('framing'):0,padBottom=getAnimValue('framing')<0?Math.abs(getAnimValue('framing')):0;const overview=getOverviewCamera(),physStart=calculateCameraPhysics(0,totalRouteDistance,currentCameraBearing);let lapMixFrame=isTrackRun?getAnimValue('enableLoop'):0,lapTargetStart=getLapTarget(0);const startBearing=lerpBearing(physStart.targetB,lapTargetStart.bear,lapMixFrame);const startPos=[lerp(routeCoordinates[0][0],lapTargetStart.pos[0],lapMixFrame),lerp(routeCoordinates[0][1],lapTargetStart.pos[1],lapMixFrame)];if(playPhase==='intro_hold'){if(!enableIntro||holdFrames===0){playPhase=enableIntro?'intro_trans':'run';playFrameIdx=0;animationId=requestAnimationFrame(frame);return;}map.getSource('runner').setData({'type':'Feature','geometry':{'type':'Point','coordinates':routeCoordinates[0]}});updateRouteSlicingByDist(0);map.jumpTo({center:overview.center,zoom:overview.zoom,pitch:0,bearing:0,padding:{top:0,bottom:0,left:0,right:0}});setTimelineProgress(0);playFrameIdx++;if(playFrameIdx>=holdFrames){playPhase='intro_trans';playFrameIdx=0;}}else if(playPhase==='intro_trans'){if(transFrames===0){playPhase='run';playFrameIdx=0;animationId=requestAnimationFrame(frame);return;}const t=Math.min(playFrameIdx/transFrames,1.0);const easeT=easeInOut(t);const cCenter=lerpLngLat(overview.center,startPos,easeT),cZoom=lerp(overview.zoom,getAnimValue('zoom'),easeT),cPitch=lerp(0,getAnimValue('pitch'),easeT),cBearing=lerpBearing(0,startBearing,easeT);map.getSource('runner').setData({'type':'Feature','geometry':{'type':'Point','coordinates':routeCoordinates[0]}});updateRouteSlicingByDist(0);map.jumpTo({center:cCenter,zoom:cZoom,pitch:cPitch,bearing:cBearing,padding:{top:padTop*easeT,bottom:padBottom*easeT,left:0,right:0}});setTimelineProgress(0);playFrameIdx++;if(playFrameIdx>transFrames){playPhase='run';currentDistance=0.0;currentCameraBearing=startBearing;currentCameraPos=[...startPos];currentRunnerPos=[...routeCoordinates[0]];}}else if(playPhase==='run'){if(currentDistance>=totalRouteDistance){playPhase=enableOutro?'outro_trans':'done';playFrameIdx=0;outroStartCenter=[...currentCameraPos];outroStartBearing=currentCameraBearing;animationId=requestAnimationFrame(frame);return;}let p=currentDistance/totalRouteDistance;currentTimelineProgress=p;setTimelineProgress(p);currentDistance+=step;}else if(playPhase==='outro_trans'){if(transFrames===0){playPhase='outro_hold';playFrameIdx=0;animationId=requestAnimationFrame(frame);return;}const t=Math.min(playFrameIdx/transFrames,1.0);const easeT=easeInOut(t);const cCenter=lerpLngLat(outroStartCenter,overview.center,easeT),cZoom=lerp(getAnimValue('zoom'),overview.zoom,easeT),cPitch=lerp(getAnimValue('pitch'),0,easeT),cBearing=lerpBearing(outroStartBearing+getAnimValue('rotation'),0,easeT);map.getSource('runner').setData({'type':'Feature','geometry':{'type':'Point','coordinates':currentRunnerPos}});updateRouteSlicingByDist(totalRouteDistance);map.jumpTo({center:cCenter,zoom:cZoom,pitch:cPitch,bearing:cBearing,padding:{top:padTop*(1-easeT),bottom:padBottom*(1-easeT),left:0,right:0}});setTimelineProgress(1.0);playFrameIdx++;if(playFrameIdx>transFrames){playPhase='outro_hold';playFrameIdx=0;}}else if(playPhase==='outro_hold'){if(holdFrames===0||playFrameIdx>=holdFrames){playPhase='done';animationId=requestAnimationFrame(frame);return;}map.getSource('runner').setData({'type':'Feature','geometry':{'type':'Point','coordinates':currentRunnerPos}});updateRouteSlicingByDist(totalRouteDistance);map.jumpTo({center:overview.center,zoom:overview.zoom,pitch:0,bearing:0,padding:{top:0,bottom:0,left:0,right:0}});setTimelineProgress(1.0);playFrameIdx++;}else if(playPhase==='done'){getEl('play-btn').disabled=false;hideRunner();currentDistance=0.0;playFrameIdx=0;playPhase='none';animationId=null;syncStateFromTimeline(false,true);return;}if(playPhase!=='done'){animationId=requestAnimationFrame(frame);}}frame();});
+getEl('pause-btn').addEventListener('click',()=>{cancelAnimationFrame(animationId);animationId=null;getEl('play-btn').disabled=false;getEl('pause-btn').disabled=true;getEl('export-btn').disabled=false;syncStateFromTimeline(false,true);});
+getEl('stop-btn').addEventListener('click',()=>{cancelAnimationFrame(animationId);animationId=null;currentDistance=0.0;playFrameIdx=0;playPhase='none';hideRunner();getEl('play-btn').disabled=false;getEl('pause-btn').disabled=true;getEl('stop-btn').disabled=true;getEl('export-btn').disabled=false;setTimelineProgress(0);syncStateFromTimeline(false,true);const overview=getOverviewCamera();map.jumpTo({center:overview.center,zoom:overview.zoom,pitch:overview.pitch,bearing:overview.bearing,padding:{top:0,bottom:0,left:0,right:0}});});
+getEl('cancel-export-btn').addEventListener('click',()=>{window.cancelExportFlag=true;getEl('export-eta').innerText='Cancelling...';getEl('cancel-export-btn').disabled=true;});
+async function triggerExport(){cancelAnimationFrame(animationId);getEl('play-btn').disabled=true;getEl('export-btn').disabled=true;window.cancelExportFlag=false;getEl('cancel-export-btn').disabled=false;getEl('cancel-export-btn').innerText="Cancel Export";const resKey=getEl('export-res').value,targetW=resolutionMap[resKey].w,targetH=resolutionMap[resKey].h,targetBR=resolutionMap[resKey].br,fps=parseInt(getEl('export-fps').value,10),enableIntro=getEl('show-intro-checkbox').checked,enableOutro=getEl('show-outro-checkbox').checked,holdFrames=parseFloat(getEl('hold-duration-slider').value)*fps,transFrames=parseFloat(getEl('transition-duration-slider').value)*fps;showRunner();isExporting=true;getEl('export-modal').style.display='flex';syncStateFromTimeline(false,false);const mapEl=getEl('map'),originalClientHeight=mapEl.clientHeight||window.innerHeight,originalWidth=mapEl.style.width,originalHeight=mapEl.style.height;mapEl.style.width=targetW+'px';mapEl.style.height=targetH+'px';map.resize();await new Promise(r=>setTimeout(r,250));const framingScale=targetH/originalClientHeight,zoomOffset=Math.log2(targetH/originalClientHeight),mapCanvas=map.getCanvas(),compositeCanvas=document.createElement('canvas');compositeCanvas.width=targetW;compositeCanvas.height=targetH;const ctx=compositeCanvas.getContext('2d'),prevCanvas=getEl('export-preview-canvas'),prevCtx=prevCanvas.getContext('2d',{willReadFrequently:true});prevCanvas.width=640;prevCanvas.height=360;let fileStream=null,videoEncoder=null;try{let fileName=getEl('export-filename').value.trim()||"My_Epic_Run";let target;if(window.showSaveFilePicker){try{const fileHandle=await window.showSaveFilePicker({suggestedName:`${fileName}.webm`,types:[{description:'WebM Video',accept:{'video/webm':['.webm']}}]});fileStream=await fileHandle.createWritable();target=new WebMMuxer.FileSystemWritableFileStreamTarget(fileStream);}catch(err){throw err;}}else{target=new WebMMuxer.ArrayBufferTarget();}const muxer=new WebMMuxer.Muxer({target:target,video:{codec:'V_VP9',width:targetW,height:targetH,frameRate:fps}});videoEncoder=new VideoEncoder({output:(chunk,meta)=>muxer.addVideoChunk(chunk,meta),error:(e)=>console.error(e)});videoEncoder.configure({codec:'vp09.00.10.08',width:targetW,height:targetH,bitrate:targetBR,framerate:fps});let frameIdx=0,exportPhase='intro',phaseProgress=0,exportStartTime=performance.now(),framesRendered=0;async function recordFrame(distValue){await new Promise(r=>{let f=0;const c=()=>{if(map.loaded()&&map.areTilesLoaded()){f++;if(f>=4)return r();}else f=0;requestAnimationFrame(c);};requestAnimationFrame(c);});ctx.drawImage(mapCanvas,0,0,targetW,targetH);
+    
+    let sF=getAnimValue('hudSize')*framingScale;
+    let layout=getAnimValue('statLayout')>=0.5?'horizontal':'vertical';
+    const alignX=getAnimValue('hudAlignX'), alignY=getAnimValue('hudAlignY'), showBg=getAnimValue('hudBackground')>=0.5, textColor=getAnimValue('hudTextColor');
+    let currentX = alignX === 0 ? 40 : (alignX === 1 ? targetW/2 : targetW - 40);
+    let currentY = alignY === 0 ? 40 : (alignY === 1 ? targetH/2 : targetH - 100*sF);
+    let xProgressionDir = alignX === 0 ? 1 : -1;
+    let yProgressionDir = alignY === 0 ? 1 : -1;
+
+    const pt=originalDataPoints.find(p=>p.dist>=distValue)||originalDataPoints[originalDataPoints.length-1];
+    
+    if(getAnimValue('showMileage')>=0.5){
+        const txt=(distValue*0.621371).toFixed(2)+" MI";
+        const metrics=drawSickHUD(ctx,currentX,currentY,"DISTANCE",txt,"#ffffff",sF,alignX,showBg,textColor,'M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7');
+        if(layout==='horizontal') currentX += xProgressionDir * (metrics.width+12*sF); else currentY += yProgressionDir * (metrics.height+12*sF);
+    }
+    if(getAnimValue('showTimer')>=0.5){
+        let timerTxt="00:00"; if(pt&&pt.time&&originalDataPoints.length>0&&originalDataPoints[0].time)timerTxt=formatTime(pt.time-originalDataPoints[0].time);
+        const metrics=drawSickHUD(ctx,currentX,currentY,"ELAPSED",timerTxt,"#3b82f6",sF,alignX,showBg,textColor,'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 6v6l4 2');
+        if(layout==='horizontal') currentX += xProgressionDir * (metrics.width+12*sF); else currentY += yProgressionDir * (metrics.height+12*sF);
+    }
+    if(getAnimValue('showPace')>=0.5){
+        let paceTxt="--:-- /MI"; if(pt&&pt.time&&originalDataPoints.length>0&&originalDataPoints[0].time&&distValue>0){let elapsedMins=(pt.time-originalDataPoints[0].time)/60000; let distMi=distValue*0.621371; if(distMi>0.02){let paceMins=elapsedMins/distMi; if(paceMins<99){let pM=Math.floor(paceMins);let pS=Math.floor((paceMins-pM)*60);paceTxt=`${pM}:${pS.toString().padStart(2,'0')} /MI`;}}}
+        const metrics=drawSickHUD(ctx,currentX,currentY,"PACE",paceTxt,"#eab308",sF,alignX,showBg,textColor,'M13 2L3 14h9l-1 8 10-12h-9l1-8z');
+        if(layout==='horizontal') currentX += xProgressionDir * (metrics.width+12*sF); else currentY += yProgressionDir * (metrics.height+12*sF);
+    }
+    if(getAnimValue('showHR')>=0.5){
+        let hrTxt="-- BPM"; if(pt&&pt.hr)hrTxt=pt.hr+" BPM";
+        const metrics=drawSickHUD(ctx,currentX,currentY,"HEART RATE",hrTxt,"#f43f5e",sF,alignX,showBg,textColor,'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z');
+        if(layout==='horizontal') currentX += xProgressionDir * (metrics.width+12*sF); else currentY += yProgressionDir * (metrics.height+12*sF);
+    }
+    if(getAnimValue('showGlucose')>=0.5){
+        let glucTxt="-- mg/dL"; if(pt&&pt.time&&dexcomData.length>0){let closest=dexcomData[0]; let minDiff=Math.abs(pt.time-closest.time); for(let i=1;i<dexcomData.length;i++){let diff=Math.abs(pt.time-dexcomData[i].time); if(diff<minDiff){minDiff=diff; closest=dexcomData[i];}} if(minDiff<15*60*1000)glucTxt=closest.glucose+" mg/dL";}
+        const metrics=drawSickHUD(ctx,currentX,currentY,"GLUCOSE",glucTxt,"#10b981",sF,alignX,showBg,textColor,'M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z');
+        if(layout==='horizontal') currentX += xProgressionDir * (metrics.width+12*sF); else currentY += yProgressionDir * (metrics.height+12*sF);
+    }
+
+    const vFrame=new VideoFrame(compositeCanvas,{timestamp:(frameIdx*1e6)/fps});videoEncoder.encode(vFrame,{keyFrame:frameIdx%60===0});vFrame.close();frameIdx++;framesRendered++;let elapsedSec=(performance.now()-exportStartTime)/1000,fpsCurrent=framesRendered/Math.max(elapsedSec,0.1),globalProgress=0;if(exportPhase==='intro'){globalProgress=phaseProgress*0.10;}else if(exportPhase==='run'){globalProgress=0.10+(phaseProgress*0.80);}else if(exportPhase==='outro'){globalProgress=0.90+(phaseProgress*0.10);}let pct=Math.min(Math.floor(globalProgress*100),100);getEl('export-progress-fill').style.width=pct+'%';getEl('export-pct').innerText=pct+'%';if(framesRendered>15&&globalProgress>0.01){let estimatedTotalFrames=framesRendered/globalProgress,remainingFrames=estimatedTotalFrames-framesRendered,remainingSec=remainingFrames/fpsCurrent,mins=Math.floor(remainingSec/60),secs=Math.floor(remainingSec%60);getEl('export-eta').innerText=`ETA: ${mins}m ${secs.toString().padStart(2,'0')}s`;}else{getEl('export-eta').innerText=`Calculating ETA...`;}if(framesRendered%2===0){prevCtx.drawImage(compositeCanvas,0,0,prevCanvas.width,prevCanvas.height);}}const overview=getOverviewCamera();setTimelineProgress(0);const physStart=calculateCameraPhysics(0,totalRouteDistance,0);let lapMixStart=isTrackRun?getAnimValue('enableLoop'):0,lapTargetStart=getLapTarget(0);const startBearing=lerpBearing(physStart.targetB,lapTargetStart.bear,lapMixStart),startPos=[lerp(routeCoordinates[0][0],lapTargetStart.pos[0],lapMixStart),lerp(routeCoordinates[0][1],lapTargetStart.pos[1],lapMixStart)];if(enableIntro){exportPhase='intro';let totalIntroFrames=holdFrames+transFrames+1,cIntroFrame=0;for(let f=0;f<holdFrames;f++){if(window.cancelExportFlag)throw new Error("CANCELLED");phaseProgress=cIntroFrame/totalIntroFrames;syncStateFromTimeline(false,false);map.getSource('runner').setData({'type':'Feature','geometry':{'type':'Point','coordinates':routeCoordinates[0]}});updateRouteSlicingByDist(0);map.jumpTo({center:overview.center,zoom:overview.zoom+zoomOffset,pitch:0,bearing:0,padding:{top:0,bottom:0,left:0,right:0}});await recordFrame(0);cIntroFrame++;}for(let f=0;f<=transFrames;f++){if(window.cancelExportFlag)throw new Error("CANCELLED");phaseProgress=cIntroFrame/totalIntroFrames;const t=f/transFrames,easeT=easeInOut(t);syncStateFromTimeline(false,false);let ptExport=getAnimValue('framing')>0?getAnimValue('framing')*framingScale:0,pbExport=getAnimValue('framing')<0?Math.abs(getAnimValue('framing'))*framingScale:0;const cCenter=lerpLngLat(overview.center,startPos,easeT),cZoom=lerp(overview.zoom+zoomOffset,getAnimValue('zoom')+zoomOffset,easeT),cPitch=lerp(0,getAnimValue('pitch'),easeT),cBearing=lerpBearing(0,startBearing,easeT);map.getSource('runner').setData({'type':'Feature','geometry':{'type':'Point','coordinates':routeCoordinates[0]}});updateRouteSlicingByDist(0);map.jumpTo({center:cCenter,zoom:cZoom,pitch:cPitch,bearing:cBearing,padding:{top:ptExport*easeT,bottom:pbExport*easeT,left:0,right:0}});await recordFrame(0);cIntroFrame++;}}exportPhase='run';let exDist=0.0,exBearing=startBearing,exPos=[...startPos],exRunnerPos=[...routeCoordinates[0]];while(exDist<totalRouteDistance){if(window.cancelExportFlag)throw new Error("CANCELLED");phaseProgress=exDist/totalRouteDistance;setTimelineProgress(exDist/totalRouteDistance);syncStateFromTimeline(false,false);let ptExport=getAnimValue('framing')>0?getAnimValue('framing')*framingScale:0,pbExport=getAnimValue('framing')<0?Math.abs(getAnimValue('framing'))*framingScale:0;const rtThick=getAnimValue('routeThickness')*framingScale,mode=getEl('route-mode').value,opGlow=0.4,opCase=0.3,opCore=1.0;['past','future'].forEach(t=>{let glowOp=0,caseOp=0,coreOp=0;if(mode==='solid'){glowOp=t==='past'?opGlow:0;caseOp=t==='past'?opCase:0;coreOp=t==='past'?opCore:0;}else if(mode==='progress'){glowOp=opGlow;caseOp=opCase;coreOp=opCore;}if(map.getLayer(`route-line-${t}-glow`)){updateMapPaint(`route-line-${t}-glow`,'line-width',rtThick+(10*framingScale));updateMapPaint(`route-line-${t}-glow`,'line-opacity',glowOp);}if(map.getLayer(`route-line-${t}-casing`)){updateMapPaint(`route-line-${t}-casing`,'line-width',rtThick+(4*framingScale));updateMapPaint(`route-line-${t}-casing`,'line-opacity',caseOp);}if(map.getLayer(`route-line-${t}`)){updateMapPaint(`route-line-${t}`,'line-width',rtThick);updateMapPaint(`route-line-${t}`,'line-opacity',coreOp);}});const rSize=getAnimValue('runnerSize')*framingScale,outlineThickness=getAnimValue('runnerOutlineThickness')*framingScale;if(map.getLayer('runner-point')){updateMapPaint('runner-point','circle-radius',rSize);updateMapPaint('runner-point','circle-stroke-width',outlineThickness);}if(map.getLayer('runner-point-symbol'))updateMapLayout('runner-point-symbol','icon-size',rSize/64);const mSize = getAnimValue('markerSize') * framingScale;if(map.getLayer('mile-markers-layer')) updateMapLayout('mile-markers-layer', 'icon-size', mSize);const phys=calculateCameraPhysics(exDist,totalRouteDistance,exBearing);let cSmooth=getAnimValue('smoothness'),lapMix=isTrackRun?getAnimValue('enableLoop'):0,lapTarget=getLapTarget(currentTimelineProgress);let targetPos=[lerp(phys.rPos[0],lapTarget.pos[0],lapMix),lerp(phys.rPos[1],lapTarget.pos[1],lapMix)],targetBear=lerpBearing(phys.newBearing,lapTarget.bear,lapMix),pWeight=Math.pow((100-cSmooth)/100,2)*0.4+0.1;exPos[0]+=(targetPos[0]-exPos[0])*pWeight;exPos[1]+=(targetPos[1]-exPos[1])*pWeight;exBearing=targetBear;exRunnerPos=[...phys.rPos];map.getSource('runner').setData({'type':'Feature','geometry':{'type':'Point','coordinates':exRunnerPos}});updateRouteSlicingByDist(exDist);map.jumpTo({center:exPos,zoom:getAnimValue('zoom')+zoomOffset,pitch:getAnimValue('pitch'),bearing:exBearing+getAnimValue('rotation'),padding:{top:ptExport,bottom:pbExport,left:0,right:0}});await recordFrame(exDist);let dStep=(0.24*getAnimValue('speed'))/fps;exDist+=dStep;}if(enableOutro){exportPhase='outro';let totalOutroFrames=transFrames+holdFrames+1,cOutroFrame=0,exOutroStartCenter=[...exPos],exOutroStartBearing=exBearing;setTimelineProgress(1.0);syncStateFromTimeline(false,false);let ptExport=getAnimValue('framing')>0?getAnimValue('framing')*framingScale:0,pbExport=getAnimValue('framing')<0?Math.abs(getAnimValue('framing'))*framingScale:0;for(let f=0;f<=transFrames;f++){if(window.cancelExportFlag)throw new Error("CANCELLED");phaseProgress=cOutroFrame/totalOutroFrames;const t=f/transFrames,easeT=easeInOut(t),cCenter=lerpLngLat(exOutroStartCenter,overview.center,easeT),cZoom=lerp(getAnimValue('zoom')+zoomOffset,overview.zoom+zoomOffset,easeT),cPitch=lerp(getAnimValue('pitch'),0,easeT),cBearing=lerpBearing(exOutroStartBearing+getAnimValue('rotation'),0,easeT);map.getSource('runner').setData({'type':'Feature','geometry':{'type':'Point','coordinates':exRunnerPos}});updateRouteSlicingByDist(totalRouteDistance);map.jumpTo({center:cCenter,zoom:cZoom,pitch:cPitch,bearing:cBearing,padding:{top:ptExport*(1-easeT),bottom:pbExport*(1-easeT),left:0,right:0}});await recordFrame(totalRouteDistance);cOutroFrame++;}for(let f=0;f<holdFrames;f++){if(window.cancelExportFlag)throw new Error("CANCELLED");phaseProgress=cOutroFrame/totalOutroFrames;map.getSource('runner').setData({'type':'Feature','geometry':{'type':'Point','coordinates':exRunnerPos}});updateRouteSlicingByDist(totalRouteDistance);map.jumpTo({center:overview.center,zoom:overview.zoom+zoomOffset,pitch:0,bearing:0,padding:{top:0,bottom:0,left:0,right:0}});await recordFrame(totalRouteDistance);cOutroFrame++;}}getEl('export-pct').innerText='100%';getEl('export-progress-fill').style.width='100%';getEl('export-eta').innerText='Muxing Audio/Video File...';await videoEncoder.flush();muxer.finalize();if(fileStream){await fileStream.close();}else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([muxer.target.buffer],{type:'video/webm'}));a.download=`${fileName}.webm`;a.click();}}catch(err){if(err.message==="CANCELLED"){console.log("Export Cancelled by User");try{if(videoEncoder)videoEncoder.close();}catch(e){}if(fileStream){try{await fileStream.abort();}catch(e){}}}else{console.error(err);alert('Export Error! Check Developer Console.');}}finally{getEl('play-btn').disabled=false;getEl('export-btn').disabled=false;hideRunner();isExporting=false;getEl('export-modal').style.display='none';mapEl.style.width=originalWidth||'100%';mapEl.style.height=originalHeight||'100%';map.resize();setTimelineProgress(0);syncStateFromTimeline(false,true);const overview=getOverviewCamera();map.jumpTo({center:overview.center,zoom:overview.zoom,pitch:overview.pitch,bearing:overview.bearing,padding:{top:0,bottom:0,left:0,right:0}});}}
+getEl('export-btn').addEventListener('click',triggerExport);
+
+let timelineH = 260;
+let uiW = 360;
+let tCol = false;
+let uCol = false;
+
+document.getElementById('ui-tab').addEventListener('click', () => {
+    uCol = !uCol;
+    const p = document.getElementById('ui-panel');
+    const tab = document.getElementById('ui-tab');
+    p.style.transition = "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
+    if(uCol) {
+        p.style.transform = `translateX(calc(-100% - 20px))`;
+        tab.innerHTML = "⟩";
+    } else {
+        p.style.transform = `none`;
+        tab.innerHTML = "⟨";
+    }
+    setTimeout(() => p.style.transition = "", 300);
+});
+
+document.getElementById('timeline-tab').addEventListener('click', () => {
+    tCol = !tCol;
+    const p = document.getElementById('timeline-panel');
+    const m = document.getElementById('map');
+    const ui = document.getElementById('ui-panel');
+    const tab = document.getElementById('timeline-tab');
+    p.style.transition = "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
+    m.style.transition = "bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
+    ui.style.transition = "bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
+    if(tCol) {
+        p.style.transform = `translateY(100%)`;
+        m.style.bottom = "0px";
+        ui.style.bottom = "20px";
+        tab.innerHTML = "↑";
+    } else {
+        p.style.transform = `none`;
+        m.style.bottom = timelineH + "px";
+        ui.style.bottom = (timelineH + 20) + "px";
+        tab.innerHTML = "↓";
+    }
+    setTimeout(() => {
+        p.style.transition = "";
+        m.style.transition = "bottom .25s ease-out";
+        ui.style.transition = "";
+        if(map) map.resize();
+    }, 300);
+});
+
+let rUi=false, rTim=false;
+document.getElementById('ui-resizer').addEventListener('mousedown', e => { if(uCol)return; rUi=true; document.body.style.cursor='ew-resize'; e.preventDefault(); });
+document.getElementById('timeline-resizer').addEventListener('mousedown', e => { if(tCol)return; rTim=true; document.body.style.cursor='ns-resize'; e.preventDefault(); });
+
+window.addEventListener('mousemove', e => {
+    if(rUi) {
+        uiW = Math.max(200, Math.min(e.clientX - 20, window.innerWidth - 100));
+        document.getElementById('ui-panel').style.width = uiW + 'px';
+    }
+    if(rTim) {
+        timelineH = Math.max(100, Math.min(window.innerHeight - e.clientY, window.innerHeight - 100));
+        document.getElementById('timeline-panel').style.height = timelineH + 'px';
+        if(!tCol) {
+            document.getElementById('map').style.bottom = timelineH + 'px';
+            document.getElementById('ui-panel').style.bottom = (timelineH + 20) + 'px';
+        }
+    }
+});
+
+window.addEventListener('mouseup', () => {
+    if(rUi || rTim) {
+        rUi = false; rTim = false;
+        document.body.style.cursor = 'default';
+        if(map) map.resize();
+    }
+});
+</script></body></html>
